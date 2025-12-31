@@ -49,3 +49,47 @@ After running the scripts, verify the setup:
 ## Troubleshooting
 - If you get "Permission denied", make sure to use `sudo`.
 - If `ip netns` is not found, ensure you are running in a Linux environment (WSL or VM) that supports it.
+
+# Day 2: Application Services Walkthrough
+
+## Overview
+We have created the application services (Nginx, API Gateway, Product, Order) and a deployment script.
+
+## Services Created
+- **Nginx**: Load balancer configuration in `services/nginx/nginx.conf`.
+- **API Gateway**: Python Flask app in `services/api-gateway/api-gateway.py`.
+- **Product Service**: Python Flask app in `services/product-service/product-service.py`.
+- **Order Service**: Python Flask app in `services/order-service/order-service.py`.
+
+## How to Deploy
+1. **Make deployment script executable**:
+   ```bash
+   chmod +x scripts/deploy_services.sh
+   ```
+
+2. **Install Dependencies**:
+   You need to install the Python dependencies in your environment (or inside the namespaces if you have a way to do that).
+   ```bash
+   pip install flask redis requests psycopg2-binary
+   ```
+   *Note: In a real scenario, you would install these inside the namespace or use a virtualenv.*
+
+3. **Run Deployment**:
+   ```bash
+   sudo ./scripts/deploy_services.sh
+   ```
+
+## Verification
+1. **Check Processes**:
+   ```bash
+   sudo ip netns exec api-gateway ps aux
+   ```
+
+2. **Test API**:
+   ```bash
+   # Test Health
+   curl http://10.0.0.10/health
+   
+   # Test Product Service via Gateway
+   curl http://10.0.0.10/api/products
+   ```

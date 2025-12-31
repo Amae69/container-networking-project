@@ -8,11 +8,11 @@
 - [x] Task 1.4: Setup Port Forwarding <!-- id: 4 -->
 
 ## Day 2: Application Services
-- [ ] Task 2.1: Deploy Nginx Load Balancer <!-- id: 5 -->
-- [ ] Task 2.2: Create API Gateway <!-- id: 6 -->
-- [ ] Task 2.3: Build Product Service <!-- id: 7 -->
-- [ ] Task 2.4: Build Order Service <!-- id: 8 -->
-- [ ] Task 2.5: Deploy Redis and PostgreSQL <!-- id: 9 -->
+- [x] Task 2.1: Deploy Nginx Load Balancer <!-- id: 5 -->
+- [x] Task 2.2: Create API Gateway <!-- id: 6 -->
+- [x] Task 2.3: Build Product Service <!-- id: 7 -->
+- [x] Task 2.4: Build Order Service <!-- id: 8 -->
+- [x] Task 2.5: Deploy Redis and PostgreSQL <!-- id: 9 -->
 
 ## Day 3: Monitoring and Debugging
 - [ ] Task 3.1: Network Traffic Analysis <!-- id: 10 -->
