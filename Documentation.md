@@ -48,17 +48,17 @@ External Users
 - `iptables`
 - `curl`
 
-## Getting Started
+## 1: Foundation - Linux Primitives
 
-## Day 1: Foundation - Linux Primitives
 **Goals**
 - Set up isolated network namespaces
 - Create virtual network interfaces
 - Implement basic inter-namespace communication
 
 ## Tasks
+
 ### Task 1.1: Create Network Namespaces
----
+
 Create six network namespaces representing my services:
 
 ```
@@ -173,6 +173,12 @@ RUN: `curl http://localhost:8080`
 
 ![test-port-forwarding](./images/extenal%20client%20access%20nginx.png)
 
+**View the NAT rule:**
+
+RUN: `sudo iptables -t nat -L -v -n`
+
+![view-nat-rule](./images/view%20nat%20rule.png)
+
 ### **Deliverable: Document all iptables rules with explanations**
 
 **Explanation of the rule:**
@@ -201,8 +207,93 @@ What this rule does:
   - Required for DNAT port forwarding to function
 ```
 
+**Traffic Flow Summary:**
 
+External Client (Port 8080) -> Host (Port 8080) -> DNAT -> nginx-lb (Port 80)
 
+![traffic-flow](./images/traffic%20flow%20.png)
 
+| Option / Flag                   | Meaning              | Explanation                                                                                    |
+| ------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------- |
+| `-t nat`                        | NAT table            | Specifies that the rule applies to the NAT table                                               |
+| `-A POSTROUTING`                | POSTROUTING chain    | Appends rule to POSTROUTING chain (applied **after** routing decision)                         |
+| `-A PREROUTING`                 | PREROUTING chain     | Appends rule to PREROUTING chain (applied **before** routing decision)                         |
+| `-A FORWARD`                    | FORWARD chain        | Appends rule to FORWARD chain (controls forwarded traffic)                                     |
+| `-s 10.0.0.0/16`                | Source network       | Matches packets originating from the container network                                         |
+| `! -o br-app`                   | Not bridge interface | Matches packets **not** leaving via the bridge interface (i.e., traffic going to the internet) |
+| `-p tcp`                        | TCP protocol         | Matches TCP traffic                                                                            |
+| `--dport 8080`                  | Destination port     | Matches packets destined to port **8080** on the host                                          |
+| `--dport 80`                    | Destination port     | Matches packets destined to port **80**                                                        |
+| `-d 10.0.0.10`                  | Destination IP       | Matches destination IP address of the nginx-lb namespace                                       |
+| `-j MASQUERADE`                 | SNAT action          | Applies MASQUERADE (dynamic Source NAT), rewriting source IP to host’s external IP             |
+| `-j DNAT`                       | DNAT action          | Applies Destination NAT, rewriting destination IP and/or port                                  |
+| `--to-destination 10.0.0.10:80` | DNAT target          | Forwards traffic to nginx-lb namespace at IP `10.0.0.10` on port `80`                          |
+| `-j ACCEPT`                     | Accept action        | Allows the packet to be forwarded                                                              |
 
+## **2: Application Services**
 
+**Goals**
+- Deploy actual services in namespaces
+- Implement service-to-service communication
+- Test the complete application flow
+
+## Tasks
+
+### Task 2.1: Deploy Nginx Load Balancer
+
+Create a simple nginx configuration that load balances to the API gateway:
+
+Install and run nginx in the namespace:
+```
+# Create nginx config
+
+sudo ip netns exec nginx-lb bash -c 'cat <<EOF > /tmp/nginx/nginx.conf
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream api_gateway {
+        server 10.0.0.20:3000;
+    }
+
+    server {
+        listen 80;
+
+        location / {
+            proxy_pass http://api_gateway;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+        }
+
+        location /health {
+            return 200 "OK\n";
+            add_header Content-Type text/plain;
+        }
+    }
+}
+EOF'
+```
+Verify the nginx config file has been created in nginx-lb namespace
+
+RUN: `sudo ip netns exec nginx-lb cat /tmp/nginx/nginx.conf`
+
+Start nginx inside nginx-lb namespace
+
+RUN: `sudo ip netns exec nginx-lb nginx -c /tmp/nginx/nginx.conf`
+
+### Deliverable: Working load balancer responding to HTTP requests
+
+**Test from host:** 
+
+RUN: `curl http://192.168.56.104:8080/health`  
+
+![test from host](./images/test%20from%20host.png)
+
+**Test from another namespace:**
+
+RUN: `sudo ip netns exec api-gateway curl http://10.0.0.10/health`  
+
+![test from namespace](./images/test%20from%20another%20namespace.png)
+
+### Task 2.2: Create API Gateway
