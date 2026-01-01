@@ -37,5 +37,5 @@
 - [ ] Task 6.2: Docker Swarm Setup <!-- id: 23 -->
 
 ## Day 7: Documentation
-- [ ] Task 7.1: Technical Documentation <!-- id: 24 -->
+- [x] Task 7.1: Technical Documentation <!-- id: 24 -->
 - [ ] Task 7.2: Create Presentation <!-- id: 25 -->
