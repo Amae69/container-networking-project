@@ -580,13 +580,64 @@ if __name__ == '__main__':
 
 **Start order-service:** `sudo ip netns exec order-service python3 /tmp/order-service.py &'`   
 
-**Verify order-service is running:**`sudo ip netns exec order-service ss -lntp | grep 5000`
+**Verify order-service is running and listening on port 5000:**`sudo ip netns exec order-service ss -lntp | grep 5000`
+
+![order-service-listening](./images/order%20svc%20listening%20on%20port%205000.png)
 
 ### Deliverable: Working order service with PostgreSQL integration
 
-**PostgreSQL running and listening on port 5432:**
+**postgres running as a container:** RUN: `sudo docker ps`
 
-RUN: `ss -lntp | grep 5432` 
+![postgres running on docker](./images/postgres%20docker%20ps.png)
+
+**PostgreSQL listening on port 5432:**RUN: `ss -lntp | grep 5432` 
 
 ![postgres running](./images/postgress%20running%20on%20port.png)
+
+**Order-service reaching postgres:**
+
+RUN: `sudo ip netns exec order-service nc -zv 10.0.0.1 5432`
+
+![order-service reaching postgres](./images/order%20svc%20connect%20postgres.png)
+
+**To confirm order-service can reach PostgreSQL and data is stored correctly:**
+
+- Creating an order (WRITE to PostgreSQL) to confirm order successfully created via API Gateway (PostgreSQL write)
+
+```
+sudo ip netns exec api-gateway curl -X POST http://localhost:3000/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "cust-101",
+    "product_id": "prod-201",
+    "quantity": 2,
+    "total_price": 150.00
+  }'
+```
+![write to postgres](./images/write%20to%20postgres.png)
+
+- Verify order record exist and persisted in PostgreSQL database
+
+RUN: `psql -U postgres -d orders -h 10.0.0.1 -c "SELECT * FROM orders;"`
+
+![verify order record](./images/verify%20order%20in%20postgres.png)
+
+
+
+
+
+
+
+
+Create a PostgreSQL container:
+```
+docker run -d --name postgres \
+  -p 5432:5432 \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=orders \
+  postgres:15
+```
+
+
 
