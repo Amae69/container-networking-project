@@ -297,3 +297,296 @@ RUN: `sudo ip netns exec api-gateway curl http://10.0.0.10/health`
 ![test from namespace](./images/test%20from%20another%20namespace.png)
 
 ### Task 2.2: Create API Gateway
+
+**Build a Node.js or Python API gateway that routes to backend services.**
+
+**create api-gateway.py:**
+```
+from flask import Flask, jsonify, request
+import requests
+
+app = Flask(__name__)
+
+PRODUCT_SERVICE = "http://10.0.0.30:5000"
+ORDER_SERVICE = "http://10.0.0.40:5000"
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "service": "api-gateway"})
+
+@app.route('/api/products', methods=['GET'])
+def get_products():
+    try:
+        response = requests.get(f"{PRODUCT_SERVICE}/products")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
+
+@app.route('/api/products/<id>', methods=['GET'])
+def get_product(id):
+    try:
+        response = requests.get(f"{PRODUCT_SERVICE}/products/{id}")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
+
+@app.route('/api/orders', methods=['POST'])
+def create_order():
+    try:
+        response = requests.post(
+            f"{ORDER_SERVICE}/orders",
+            json=request.json
+        )
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 503
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=3000)
+```
+```
+Copy file to accessible location
+
+sudo ip netns exec api-gateway bash -c 'cat <<EOF > /tmp/api-gateway.py
+EOF'
+
+# Install dependencies in namespace or use a Python virtual environment
+sudo ip netns exec api-gateway pip install flask requests
+
+# Start api-gateway
+sudo ip netns exec api-gateway python3 /tmp/api-gateway.py &
+```
+**Flask running inside the api-gateway namespace on port 3000:**
+
+RUN: `sudo ip netns exec api-gateway ss -lntp | grep 3000`
+
+![flask running](./images/flask%20running.png)
+
+**Testing the Api health  from inside the namespace:**
+
+RUN: `sudo ip netns exec api-gateway curl http://127:3000/health`
+
+![test-api-health](./images/testing%20api%20health.png)
+
+**Test from other namespaces (e.g., nginx-lb)**
+
+RUN: `sudo ip netns exec nginx-lb curl http://10.0.0.20:3000/health`
+
+![test-api-health-nginx-lb](./images/test%20from%20other%20namespace.png)
+
+
+### Deliverable: API Gateway responding to requests and routing correctly
+
+- **Test API Gateway Routing to product-service from api-gateway namespace:** 
+
+  RUN: `sudo ip netns exec api-gateway curl http://localhost:3000/api/products`
+
+  ![api-gateway-routing2prod](./images/api%20route%20to%20prod%20from%20api.png)
+
+- **Then test API Gateway Routing to product service via my host port-forwarding to confirm everything works end-to-end:** 
+
+  RUN: `curl http://192.168.56.104:8080/api/products`
+
+  ![api-gateway-routing2prod-host](./images/api%20route%20to%20prod%20from%20host.png)    
+
+- **Test API Gateway Routing to order-service from api-gateway namespace:** 
+
+  RUN: `sudo ip netns exec api-gateway curl http://localhost:3000/api/orders`
+
+  ![api-gateway-routing2order](./images/api%20route%20to%20order%20from%20api.png)
+
+- **Then test API Gateway Routing to order service via my host port-forwarding to confirm everything works end-to-end:** 
+
+  RUN: `curl http://192.168.56.104:8080/api/orders`
+
+  ![api-gateway-routing2order-host](./images/api%20route%20to%20order%20from%20host.png)  
+
+### Task 2.3: Build Product Service
+
+**Create product-service.py:**
+```
+from flask import Flask, jsonify
+import redis
+import json
+
+app = Flask(__name__)
+
+# Connect to Redis cache
+try:
+    cache = redis.Redis(host='10.0.0.50', port=6379, decode_responses=True)
+except:
+    cache = None
+
+# Mock product database
+PRODUCTS = {
+    "1": {"id": "1", "name": "Laptop", "price": 999.99, "stock": 50},
+    "2": {"id": "2", "name": "Mouse", "price": 29.99, "stock": 200},
+    "3": {"id": "3", "name": "Keyboard", "price": 79.99, "stock": 150},
+}
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "service": "product-service"})
+
+@app.route('/products', methods=['GET'])
+def get_products():
+    # Try cache first
+    if cache:
+        cached = cache.get('all_products')
+        if cached:
+            return jsonify(json.loads(cached))
+    
+    # Return products and cache
+    products = list(PRODUCTS.values())
+    if cache:
+        cache.setex('all_products', 300, json.dumps(products))
+    
+    return jsonify(products)
+
+@app.route('/products/<product_id>', methods=['GET'])
+def get_product(product_id):
+    # Try cache first
+    if cache:
+        cached = cache.get(f'product_{product_id}')
+        if cached:
+            return jsonify(json.loads(cached))
+    
+    product = PRODUCTS.get(product_id)
+    if not product:
+        return jsonify({"error": "Product not found"}), 404
+    
+    if cache:
+        cache.setex(f'product_{product_id}', 300, json.dumps(product))
+    
+    return jsonify(product)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+```
+**Start product-service:** `sudo ip netns exec product-service python3 /tmp/product-service.py &'`   
+
+**Verify product-service is running:**`sudo ip netns exec product-service ss -lntp | grep 5000`
+
+### Deliverable: Working product service with Redis caching
+
+**Redis running inside its namespace and listening on port 6379:**
+
+RUN: `sudo ip netns exec redis-cache ss -lntp | grep 6379`
+
+![redis running](./images/redis%20cache%20running.png)
+
+**Product-service successfully connect to redis cache:**
+
+RUN: `sudo ip netns exec product-service nc -zv 10.0.0.50 6379`
+
+![prod connect to redis](./images/prod%20connect%20to%20redis.png)
+
+**API Gateway Routing to product-service from api-gateway namespace:** 
+
+RUN: `sudo ip netns exec api-gateway curl http://localhost:3000/api/products`
+
+![api-gateway-routing2prod](./images/api%20route%20to%20prod%20from%20api.png)  
+
+### Task 2.4: Build Order Service
+
+**Create order-service.py:**
+```
+from flask import Flask, jsonify, request
+import psycopg2
+from datetime import datetime
+import json
+
+app = Flask(__name__)
+
+# Database connection
+def get_db():
+    return psycopg2.connect(
+        host='10.0.0.60',
+        database='orders',
+        user='postgres',
+        password='postgres'
+    )
+
+# Initialize database
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS orders (
+            id SERIAL PRIMARY KEY,
+            customer_id VARCHAR(100),
+            product_id VARCHAR(100),
+            quantity INTEGER,
+            total_price DECIMAL(10, 2),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    cur.close()
+    conn.close()
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "service": "order-service"})
+
+@app.route('/orders', methods=['POST'])
+def create_order():
+    data = request.json
+    
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute(
+        '''INSERT INTO orders (customer_id, product_id, quantity, total_price)
+           VALUES (%s, %s, %s, %s) RETURNING id''',
+        (data['customer_id'], data['product_id'], 
+         data['quantity'], data['total_price'])
+    )
+    
+    order_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({"order_id": order_id, "status": "created"}), 201
+
+@app.route('/orders/<order_id>', methods=['GET'])
+def get_order(order_id):
+    conn = get_db()
+    cur = conn.cursor()
+    
+    cur.execute('SELECT * FROM orders WHERE id = %s', (order_id,))
+    order = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    if not order:
+        return jsonify({"error": "Order not found"}), 404
+    
+    return jsonify({
+        "id": order[0],
+        "customer_id": order[1],
+        "product_id": order[2],
+        "quantity": order[3],
+        "total_price": float(order[4]),
+        "created_at": order[5].isoformat()
+    })
+
+if __name__ == '__main__':
+    init_db()
+    app.run(host='0.0.0.0', port=5000)
+```
+
+**Start order-service:** `sudo ip netns exec order-service python3 /tmp/order-service.py &'`   
+
+**Verify order-service is running:**`sudo ip netns exec order-service ss -lntp | grep 5000`
+
+### Deliverable: Working order service with PostgreSQL integration
+
+**PostgreSQL running and listening on port 5432:**
+
+RUN: `ss -lntp | grep 5432` 
+
+![postgres running](./images/postgress%20running%20on%20port.png)
+
