@@ -116,25 +116,28 @@ IP:
 ### **Deliverable:**
 
 - **Network diagram showing my setup**
+
 ![network-diagram](./images/net-diagram.png)
 
 - **Showing bridge with connected interfaces**
+
 ![bridge-with-interface](./images/bridge%20with%20interface.png)
+
 ![bridge-with-veth](./images/ip%20link%20show%20type%20veth.png)
 
 - **Proof of connectivity (ping tests between all namespaces)**
 
-    Run : `sudo ip netns exec nginx-lb ping -c 2 10.0.0.20`
+Run : `sudo ip netns exec nginx-lb ping -c 2 10.0.0.20`
 
-    nginx-lb –-> api-gateway (10.0.0.20)
+nginx-lb –-> api-gateway (10.0.0.20)
 
-    nginx-lb –-> product-service(10.0.0.30)
-    ![Ping 1](./images/ping%201.png)
+nginx-lb –-> product-service(10.0.0.30)
 
-     api-gateway –-> product-service (10.0.0.30)
+![Ping 1](./images/ping%201.png)
 
-     api-gateway –-> order-service(10.0.0.40)
-     ![Ping 2](./images/ping%202.png)
+api-gateway –-> product-service (10.0.0.30)
+
+![Ping 2](./images/ping%202.png)
 
 ### Task 1.3: Implement NAT for Internet Access
 ---
