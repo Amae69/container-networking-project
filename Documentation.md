@@ -622,6 +622,12 @@ RUN: `psql -U postgres -d orders -h 10.0.0.1 -c "SELECT * FROM orders;"`
 
 ![verify order record](./images/verify%20order%20in%20postgres.png)
 
+- check from within order-service namespace to confirm the order created via api gateway and stored in postgres:
+
+RUN: `sudo ip netns exec order-service psql -U postgres -d orders -h 10.0.0.1 -c "SELECT * FROM orders;"`
+
+![verify order record](./images/verify%20order%20in%20postgress%20frm%20order%20ns.png)
+
 
 
 
