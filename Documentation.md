@@ -628,14 +628,16 @@ RUN: `sudo ip netns exec order-service psql -U postgres -d orders -h 10.0.0.1 -c
 
 ![verify order record](./images/verify%20order%20in%20postgress%20frm%20order%20ns.png)
 
+### Task 2.5: Deploy Redis and PostgreSQL
 
+**Run Redis:** `sudo ip netns exec redis-cache redis-server --bind 0.0.0.0 &`
 
+![redis running](./images/run%20redis.png)
 
+**Run PostgreSQL:**
 
+Create a PostgreSQL container on host:
 
-
-
-Create a PostgreSQL container:
 ```
 docker run -d --name postgres \
   -p 5432:5432 \
@@ -644,6 +646,37 @@ docker run -d --name postgres \
   -e POSTGRES_DB=orders \
   postgres:15
 ```
+RUN: `sudo docker ps`
 
+![postgres running](./images/postgres%20docker%20ps.png)
 
+### Deliverable: Both data stores operational and accessible
+
+- Redis running inside redis-cache namespace and accessible on port 6379
+
+![redis running](./images/redis%20running%20in%20rd%20ns.png)  
+
+- Product-service can reach Redis in redis-cache namespace
+
+RUN: `sudo ip netns exec product-service nc -zv 10.0.0.50 6379`
+
+![product-service reaching redis](./images/prod%20connect%20to%20redis.png)
+
+- Order-service can reach postgresSQL
+
+RUN: `sudo ip netns exec order-service nc -zv 10.0.0.1 5432`
+
+![order-service reaching postgres](./images/order%20svc%20connect%20postgres.png)
+
+## **3: Monitoring and Debugging**
+
+**Goals**
+
+- Implement network monitoring
+- Create debugging tools
+- Add observability to your infrastructure
+
+## Tasks
+
+### Task 3.1: Network Traffic Analysis (90 minutes)
 
