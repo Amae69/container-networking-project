@@ -681,5 +681,5 @@ RUN: `sudo ip netns exec order-service nc -zv 10.0.0.1 5432`
 
 ## Tasks
 
-### Task 3.1: Network Traffic Analysis (90 minutes)
+### Task 3.1: Network Traffic Analysis 
 
