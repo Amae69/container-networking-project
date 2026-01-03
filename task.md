@@ -21,10 +21,10 @@
 - [ ] Task 3.4: Create Network Topology Visualizer <!-- id: 13 -->
 
 ## Day 4: Advanced Networking
-- [ ] Task 4.1: Implement Simple Service Discovery <!-- id: 14 -->
-- [ ] Task 4.2: Implement Round-Robin Load Balancing <!-- id: 15 -->
+- [x] Task 4.1: Implement Simple Service Discovery <!-- id: 14 -->
+- [x] Task 4.2: Implement Round-Robin Load Balancing <!-- id: 15 -->
 - [ ] Task 4.3: Network Security Policies <!-- id: 16 -->
-- [ ] Task 4.4: Implement Network Isolation <!-- id: 17 -->
+- [x] Task 4.4: Implement Network Isolation <!-- id: 17 -->
 
 ## Day 5: Docker Migration
 - [ ] Task 5.1: Containerize All Services <!-- id: 18 -->

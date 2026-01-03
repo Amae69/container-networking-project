@@ -683,3 +683,957 @@ RUN: `sudo ip netns exec order-service nc -zv 10.0.0.1 5432`
 
 ### Task 3.1: Network Traffic Analysis 
 
+**Create a script that monitors traffic on the bridge and dump it on a log file:**
+
+```
+#!/bin/bash
+# monitor-traffic.sh
+
+LOG_FILE="traffic_log_$(date '+%Y%m%d_%H%M%S').log"
+
+echo "=== Network Traffic Monitor ==="
+echo "Monitoring bridge: br-app"
+echo "Logging to $LOG_FILE"
+echo "Press Ctrl+C to stop"
+echo ""
+
+sudo tcpdump -i br-app -n -v -tttt > "$LOG_FILE"
+``` 
+**Run the traffic monitor:** 
+
+`chmod +x monitor-traffic.sh`
+
+`./monitor-traffic.sh`
+
+![monitor-traffic.sh](./images/monitor-traffic.sh.png)
+
+**Tcpdump running with app traffic:**
+
+`sudo tcpdump -i br-app -n -v -tttt`
+
+![tcpdump running](./images/tcpdump%20running.png)
+
+### Create a python script to analyze my log file **"traffic_log"** and create a csv file for each analysis
+---
+
+`sudo nano traffic_analysis_services.py`
+```
+#!/usr/bin/env python3
+
+import glob
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ============================
+# SERVICE ↔ IP MAP
+# ============================
+
+SERVICE_MAP = {
+    "10.0.0.10": "nginx-lb",
+    "10.0.0.20": "api-gateway",
+    "10.0.0.30": "product-service",
+    "10.0.0.40": "order-service",
+    "10.0.0.50": "redis-cache",
+    "10.0.0.60": "postgres-db",
+}
+
+LOG_PATTERN = "traffic_log_*.log"
+
+# ============================
+# LOAD & NORMALIZE TCPDUMP LOG
+# ============================
+
+log_files = glob.glob(LOG_PATTERN)
+if not log_files:
+    print("❌ No traffic_log_*.log files found")
+    exit(1)
+
+raw_lines = []
+for file in log_files:
+    with open(file, "r") as f:
+        raw_lines.extend(f.readlines())
+
+print(f"✅ Loaded {len(raw_lines)} tcpdump lines")
+
+# Merge indented lines with previous line
+lines = []
+buffer = ""
+
+for line in raw_lines:
+    if line.startswith(" ") or line.startswith("\t"):
+        buffer += " " + line.strip()
+    else:
+        if buffer:
+            lines.append(buffer)
+        buffer = line.strip()
+
+if buffer:
+    lines.append(buffer)
+
+# ============================
+# PARSE IPv4 PACKETS
+# ============================
+
+IPV4_REGEX = re.compile(
+    r"(\d+\.\d+\.\d+\.\d+)\.\d+\s*>\s*(\d+\.\d+\.\d+\.\d+)\.\d+"
+)
+
+records = []
+
+for line in lines:
+    if "IP6" in line:
+        continue
+
+    match = IPV4_REGEX.search(line)
+    if not match:
+        continue
+
+    src_ip, dst_ip = match.groups()
+
+    if "ICMP" in line:
+        protocol = "ICMP"
+    elif "UDP" in line:
+        protocol = "UDP"
+    elif "Flags" in line:
+        protocol = "TCP"
+    else:
+        protocol = "OTHER"
+
+    records.append({
+        "source": SERVICE_MAP.get(src_ip, src_ip),
+        "destination": SERVICE_MAP.get(dst_ip, dst_ip),
+        "protocol": protocol
+    })
+
+# ============================
+# DATAFRAME
+# ============================
+
+df = pd.DataFrame(records)
+
+if df.empty:
+    print("❌ No IPv4 service traffic detected")
+    exit(1)
+
+print(f"✅ Parsed {len(df)} packets")
+
+# ============================
+# ANALYSIS
+# ============================
+
+pair_counts = df.groupby(["source", "destination"]).size().reset_index(name="packets")
+pair_counts.to_csv("packets_per_service_pair.csv", index=False)
+
+protocol_counts = df["protocol"].value_counts().reset_index()
+protocol_counts.columns = ["protocol", "packets"]
+protocol_counts.to_csv("protocol_distribution.csv", index=False)
+
+top_talkers = df["source"].value_counts().reset_index()
+top_talkers.columns = ["service", "packets"]
+top_talkers.to_csv("top_talkers.csv", index=False)
+
+# ============================
+# GRAPHS
+# ============================
+
+plt.figure()
+plt.bar(protocol_counts["protocol"], protocol_counts["packets"])
+plt.title("Protocol Distribution")
+plt.tight_layout()
+plt.savefig("protocol_distribution.png")
+plt.close()
+
+top_pairs = pair_counts.sort_values("packets", ascending=False).head(10)
+plt.figure(figsize=(10, 5))
+plt.barh(
+    top_pairs["source"] + " → " + top_pairs["destination"],
+    top_pairs["packets"]
+)
+plt.title("Top Service-to-Service Traffic")
+plt.tight_layout()
+plt.savefig("top_service_pairs.png")
+plt.close()
+
+plt.figure()
+plt.bar(top_talkers["service"], top_talkers["packets"])
+plt.title("Top Talkers")
+plt.tight_layout()
+plt.savefig("top_talkers.png")
+plt.close()
+
+print("\n🎉 Traffic analysis complete!")
+```
+
+**Run python file: `python3 traffic_analysis_services.py` to analyze the tcdump log file and create csv file for each analysis**
+
+![run python3 traffic analysis file](./images/run%20python3%20traffic%20analysis%20file.png)
+
+**CSV files created by python script:**
+
+![python csv files](./images/python%20csv%20file.png)
+
+**Assignment: Create a traffic analysis report showing:**
+
+- Packets between each service pair
+
+  ![packet btw each service](./images/packet%20btw%20each%20service.png)
+
+- Protocol distribution (TCP/UDP/ICMP)
+
+  ![protocol distribution](./images/protocol%20distribution.png)
+
+- Top talkers (most active services)
+
+  ![top talkers](./images/top%20talkers.png)
+
+### Deliverable: Traffic analysis report with graphs:
+---
+Create a python script `sudo nano generate_traffic_report.py file` that will generate a traffic analysis report for each csv file created by the python script **traffic_analysis_services.py**.
+
+```
+#!/usr/bin/env python3
+
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+)
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+import pandas as pd
+import os
+from datetime import datetime
+
+# ============================
+# FILES
+# ============================
+
+REPORT_NAME = "traffic_analysis_report.pdf"
+
+CSV_FILES = {
+    "Service Traffic": "packets_per_service_pair.csv",
+    "Protocol Distribution": "protocol_distribution.csv",
+    "Top Talkers": "top_talkers.csv",
+}
+
+IMAGES = [
+    "protocol_distribution.png",
+    "top_service_pairs.png",
+    "top_talkers.png",
+]
+
+# ============================
+# DOCUMENT SETUP
+# ============================
+
+doc = SimpleDocTemplate(REPORT_NAME, pagesize=A4)
+styles = getSampleStyleSheet()
+elements = []
+
+# ============================
+# TITLE
+# ============================
+
+elements.append(Paragraph(
+    "<b>Network Traffic Analysis Report</b>",
+    styles["Title"]
+))
+elements.append(Spacer(1, 12))
+
+elements.append(Paragraph(
+    f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+    styles["Normal"]
+))
+elements.append(Spacer(1, 20))
+
+# ============================
+# EXECUTIVE SUMMARY
+# ============================
+
+summary_text = """
+This report presents an analysis of network traffic captured on the <b>br-app</b>
+Linux bridge connecting multiple microservices implemented using network namespaces.
+The goal is to validate service-to-service communication, protocol usage, and identify
+top traffic sources within the application architecture.
+"""
+
+elements.append(Paragraph("<b>Executive Summary</b>", styles["Heading2"]))
+elements.append(Spacer(1, 8))
+elements.append(Paragraph(summary_text, styles["Normal"]))
+elements.append(Spacer(1, 20))
+
+# ============================
+# TABLE SECTIONS
+# ============================
+
+for title, csv_file in CSV_FILES.items():
+    if not os.path.exists(csv_file):
+        continue
+
+    df = pd.read_csv(csv_file)
+
+    elements.append(Paragraph(f"<b>{title}</b>", styles["Heading2"]))
+    elements.append(Spacer(1, 10))
+
+    table_data = [df.columns.tolist()] + df.values.tolist()
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
+    ]))
+
+    elements.append(table)
+    elements.append(Spacer(1, 20))
+
+# ============================
+# GRAPHS
+# ============================
+
+elements.append(Paragraph("<b>Traffic Visualization</b>", styles["Heading2"]))
+elements.append(Spacer(1, 12))
+
+for img in IMAGES:
+    if os.path.exists(img):
+        elements.append(Image(img, width=400, height=250))
+        elements.append(Spacer(1, 15))
+
+# ============================
+# BUILD REPORT
+# ============================
+
+doc.build(elements)
+
+print("✅ PDF report generated successfully:")
+print(f"   {REPORT_NAME}")
+```
+![traffic-report1](./images/traffic-report1.png)
+
+![traffic-report2](./images/traffic-report2.png)
+
+### Task 3.2: Service Health Monitoring
+
+Create health-monitor.py:
+
+```
+#!/usr/bin/env python3
+import requests
+import time
+from datetime import datetime
+import json
+
+SERVICES = {
+    'nginx-lb': 'http://10.0.0.10/health',
+    'api-gateway': 'http://10.0.0.20:3000/health',
+    'product-service': 'http://10.0.0.30:5000/health',
+    'order-service': 'http://10.0.0.40:5000/health',
+}
+
+def check_health(service_name, url):
+    try:
+        response = requests.get(url, timeout=2)
+        if response.status_code == 200:
+            return {"status": "UP", "latency": response.elapsed.total_seconds()}
+        else:
+            return {"status": "DOWN", "error": f"HTTP {response.status_code}"}
+    except Exception as e:
+        return {"status": "DOWN", "error": str(e)}
+
+def monitor():
+    print("=== Service Health Monitor ===")
+    print(f"Started at: {datetime.now()}")
+    print("")
+
+    while True:
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Health Check:")
+        print("-" * 60)
+
+        for service, url in SERVICES.items():
+            health = check_health(service, url)
+            status_symbol = "✓" if health['status'] == 'UP' else "✗"
+
+            if health['status'] == 'UP':
+                print(f"{status_symbol} {service:20s} UP   (latency: {health['latency']*1000:.2f}ms)")
+            else:
+                print(f"{status_symbol} {service:20s} DOWN ({health.get('error', 'Unknown')})")
+ 
+        time.sleep(10)
+
+if __name__ == '__main__':
+    monitor()
+```
+
+### Deliverable: Health monitoring dashboard showing service status
+---
+Modify file permission and execute:
+
+`sudo chmod +x health-monitor.py`
+
+`sudo ./health-monitor.py`
+
+![health-monitor](./images/health-monitor.png)
+
+### Task 3.3: Connection Tracking Analysis
+
+Create a script to analyze active connections: `sudo nano connection-tracker.sh`
+
+```
+#!/bin/bash
+# connection-tracker.sh
+
+echo "=== Active Connection Tracker ==="
+echo "Press Ctrl+C to stop"
+
+while true; do
+    clear
+    echo "=== Active Connections ($(date)) ==="
+    echo ""
+
+    echo "Connections by Service:"
+    echo "----------------------"
+
+    for ns in nginx-lb api-gateway product-service order-service; do
+        if ip netns list | grep -q "$ns"; then
+            count=$(sudo ip netns exec $ns ss -tan state established | wc -l)
+            echo "$ns: $count active connections"
+        else
+            echo "$ns: namespace not found"
+        fi
+    done
+
+    echo ""
+    echo "Connection States (conntrack):"
+    echo "-----------------------------"
+
+    sudo conntrack -L 2>/dev/null | grep "10.0.0" | \
+    awk '
+    {
+      for(i=1;i<=NF;i++) {
+        if($i ~ /^dst=/) {
+          gsub("dst=","",$i)
+          print $i
+        }
+      }
+    }' | \
+    sed \
+      -e 's/10.0.0.10/nginx-lb/' \
+      -e 's/10.0.0.20/api-gateway/' \
+      -e 's/10.0.0.30/product-service/' \
+      -e 's/10.0.0.40/order-service/' \
+      -e 's/10.0.0.50/redis-cache/' | \
+    sort | uniq -c | sort -rn
+
+    sleep 5
+done
+```
+### Deliverable: Connection tracking report
+---
+Modify file permission and execute
+
+`chmod +x connection-tracker.sh`
+
+`sudo ./connection-tracker.sh`
+
+![connection-tracker](./images/connection-tracker.png)
+
+![connection tracking report](./images/connection%20tracking%20report.png)
+
+### Task 3.4: Network Topology Visualizer
+
+Create a script that generates a visual representation of your network: `sudo nano topology-visualizer.py`
+
+```
+#!/usr/bin/env python3
+# topology-visualizer.py
+
+import subprocess
+import re
+
+NAMESPACES = [
+    'nginx-lb',
+    'api-gateway',
+    'product-service',
+    'order-service',
+    'redis-cache',
+    'postgres-db'
+]
+
+def get_namespace_ips():
+    """Get IPv4 addresses for all namespaces"""
+    ips = {}
+
+    for ns in NAMESPACES:
+        try:
+            result = subprocess.run(
+                ['sudo', 'ip', 'netns', 'exec', ns, 'ip', '-4', 'addr', 'show'],
+                capture_output=True, text=True, check=True
+            )
+            match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', result.stdout)
+            if match:
+                ips[ns] = match.group(1)
+            else:
+                ips[ns] = "N/A"
+        except subprocess.CalledProcessError:
+            ips[ns] = "N/A"
+
+    return ips
+
+def draw_topology():
+    ips = get_namespace_ips()
+
+    print("=" * 80)
+    print(" " * 25 + "NETWORK TOPOLOGY DIAGRAM")
+    print("=" * 80)
+    print()
+    print("                    🌍 Internet")
+    print("                         │")
+    print("                         │  NAT")
+    print("                         ▼")
+    print("                ┌─────────────────┐")
+    print("                │ Host            │")
+    print("                │ Port: 8080      │")
+    print("                └────────┬────────┘")
+    print("                         │ DNAT")
+    print("                         ▼")
+    print("            ┌────────────────────────┐")
+    print("            │ Bridge: br-app         │")
+    print("            │ IP: 10.0.0.1           │")
+    print("            └─────────┬──────────────┘")
+    print("                      │")
+    print("        ┌─────────────┼─────────────────┐")
+    print("        │             │                 │")
+
+    for service, ip in ips.items():
+        print(f"  {service:18s} → {ip}")
+
+    print()
+    print("=" * 80)
+
+if __name__ == "__main__":
+    draw_topology()
+```
+### Deliverable: Network topology diagram
+---
+Modify file permission and execute:
+
+`sudo chmod +x topology-visualizer.py`
+
+`python3 topology-visualizer.py` 
+
+![topology-visualizer](./images/topology-visualizer.png)
+
+![topology diagram](./images/topology%20diagram.png)
+
+## **4: Advanced Networking**
+
+**Goals**
+
+- Implement service discovery
+- Add load balancing
+- Create network security policies
+
+## Tasks
+
+### Task 4.1: Implement Simple Service Discovery
+
+Create a simple DNS-like service registry: `sudo nano service-registry.py`
+```
+#!/usr/bin/env python3
+# service-registry.py
+
+from flask import Flask, jsonify, request
+import time
+
+app = Flask(__name__)
+
+# In-memory registry
+services = {}
+
+@app.route('/register', methods=['POST'])
+def register_service():
+    data = request.json
+
+    service_name = data['name']
+    service_ip = data['ip']
+    service_port = data['port']
+
+    services[service_name] = {
+        "ip": service_ip,
+        "port": service_port,
+        "registered_at": time.strftime('%Y-%m-%d %H:%M:%S'),
+        "health": "unknown"
+    }
+
+    return jsonify({
+        "status": "registered",
+        "service": service_name
+    })
+
+@app.route('/discover/<service_name>', methods=['GET'])
+def discover_service(service_name):
+    if service_name in services:
+        return jsonify(services[service_name])
+    return jsonify({"error": "Service not found"}), 404
+
+@app.route('/services', methods=['GET'])
+def list_services():
+    return jsonify(services)
+
+@app.route('/deregister/<service_name>', methods=['DELETE'])
+def deregister(service_name):
+    if service_name in services:
+        del services[service_name]
+        return jsonify({"status": "deregistered"})
+    return jsonify({"error": "Service not found"}), 404
+
+if __name__ == "__main__":
+    app.run(host="10.0.0.70", port=8500)
+```
+**Run registry in its own namespace**
+
+Create a new namespace and start registry: 
+
+`sudo ip netns exec service-registry python3 service-registry.py`
+
+![service registry](./images/service%20registry.png)
+
+**Edit my services file (product, order, api-gateway) to register themselves on startup**  
+
+`sudo ip netns exec product-service python3 product-service.py`
+
+`sudo ip netns exec order-service python3 order-service.py`
+
+`sudo ip netns exec api-gateway python3 api-gateway.py`
+
+![registered-services](./images/registered-services.png)
+
+### Deliverable: Working service discovery with all services registered
+---
+`sudo ip netns exec service-registry python3 service-registry.py`
+
+![run-service-reg](./images/run-service-reg.png)
+
+**Test Service Discovery**
+
+Run: `curl http://10.0.0.70:8500/services`
+
+![test-service-discovery1](./images/test-service-discovery1.png)
+
+Run `curl http://10.0.0.70:8500/discover/product-service`
+
+Run `curl http://10.0.0.70:8500/discover/order-service`
+
+Run `curl http://10.0.0.70:8500/discover/api-gateway`
+
+![test-service-discovery2](./images/test-service-discovery2.png)
+
+### Task 4.2: Implement Round-Robin Load Balancing 
+
+**Modify the API Gateway to load balance between multiple instances:**
+```
+# Enhanced API Gateway with load balancing
+import requests
+import itertools
+
+class LoadBalancer:
+    def __init__(self, backends):
+        self.backends = itertools.cycle(backends)
+        self.backend_list = backends
+    
+    def get_backend(self):
+        return next(self.backends)
+    
+    def health_check(self):
+        healthy = []
+        for backend in self.backend_list:
+            try:
+                response = requests.get(f"{backend}/health", timeout=1)
+                if response.status_code == 200:
+                    healthy.append(backend)
+            except:
+                pass
+        self.backends = itertools.cycle(healthy)
+        return healthy
+
+# Use in routes
+product_lb = LoadBalancer([
+    "http://10.0.0.30:5000",
+    "http://10.0.0.31:5000",  # Add second instance
+    "http://10.0.0.32:5000",  # Add third instance
+])
+```
+Create multiple instances of product-service
+
+```
+#!/bin/bash
+# multiple_instance.sh
+# Adds extra network namespaces for load balancing testing
+
+set -e
+
+echo "Setting up extra product service nodes..."
+
+# Create namespaces
+sudo ip netns add product2 || true
+sudo ip netns add product3 || true
+
+# Create veth pairs
+sudo ip link add veth-prod2 type veth peer name veth-prod2-br || true
+sudo ip link add veth-prod3 type veth peer name veth-prod3-br || true
+
+# Attach to bridge (assuming br-app exists from previous tasks)
+sudo ip link set veth-prod2-br master br-app
+sudo ip link set veth-prod3-br master br-app
+
+# Move interfaces to namespaces
+sudo ip link set veth-prod2 netns product2
+sudo ip link set veth-prod3 netns product3
+
+# Bring up bridge side
+sudo ip link set veth-prod2-br up
+sudo ip link set veth-prod3-br up
+
+# Configure IPs
+sudo ip netns exec product2 ip addr add 10.0.0.31/16 dev veth-prod2
+sudo ip netns exec product2 ip link set veth-prod2 up
+sudo ip netns exec product2 ip route add default via 10.0.0.1
+
+sudo ip netns exec product3 ip addr add 10.0.0.32/16 dev veth-prod3
+sudo ip netns exec product3 ip link set veth-prod3 up
+sudo ip netns exec product3 ip route add default via 10.0.0.1
+
+# Enable loopback
+sudo ip netns exec product2 ip link set lo up
+sudo ip netns exec product3 ip link set lo up
+
+echo "multiple instance of product service complete:"
+echo "product2: 10.0.0.31"
+echo "product3: 10.0.0.32"
+```
+**Register each instance separately in the service registry**
+```
+export SERVICE_IP="10.0.0.30"
+export SERVICE_PORT=5000
+export INSTANCE_ID="product-1"
+python3 product-service.py
+
+export SERVICE_IP="10.0.0.31"
+export SERVICE_PORT=5000
+export INSTANCE_ID="product-2"
+python3 product-service.py
+
+export SERVICE_IP="10.0.0.32"
+export SERVICE_PORT=5000
+export INSTANCE_ID="product-3"
+python3 product-service.py
+```
+![registered-multi-prod inst](./images/registered-multi-prod%20inst.png)
+
+### Deliverable: Load balancing working with request distribution logs
+---
+![round-robin](./images/round%20robin%20loadb.png)
+
+### Task 4.3: Network Security Policies
+
+Implement iptables rules for security:
+
+```
+#!/bin/bash
+# security-policies.sh
+
+echo "Applying network security policies..."
+
+# Allow established connections (VERY IMPORTANT)
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 1. Block direct access to database from outside order-service
+iptables -A FORWARD ! -s 10.0.0.40/32 -d 10.0.0.60/32 -p tcp --dport 5432 -j DROP
+echo "✓ Database isolated to order-service only"
+
+# 2. Block direct access to Redis from outside product-service
+iptables -A FORWARD ! -s 10.0.0.30/32 -d 10.0.0.50/32 -p tcp --dport 6379 -j DROP
+echo "✓ Redis isolated to product-service only"
+
+# 3. Rate limit connections to API Gateway
+iptables -A FORWARD -d 10.0.0.20/32 -p tcp --dport 3000 \
+  -m limit --limit 100/minute --limit-burst 20 -j ACCEPT
+
+iptables -A FORWARD -d 10.0.0.20/32 -p tcp --dport 3000 -j DROP
+echo "✓ Rate limiting applied to API Gateway"
+
+# 4. Allow only HTTP/HTTPS/DNS outbound from services
+iptables -A FORWARD -s 10.0.0.0/16 -p tcp --dport 80 -j ACCEPT
+iptables -A FORWARD -s 10.0.0.0/16 -p tcp --dport 443 -j ACCEPT
+iptables -A FORWARD -s 10.0.0.0/16 -p tcp --dport 53 -j ACCEPT
+iptables -A FORWARD -s 10.0.0.0/16 -p udp --dport 53 -j ACCEPT
+echo "✓ Outbound traffic restricted"
+
+# 5. Log dropped packets
+iptables -A FORWARD -j LOG --log-prefix "DROPPED: " --log-level 4
+
+echo "Security policies applied successfully!"
+```
+`sudo nano security-policies.sh`
+
+`sudo chmod +x security-policies.sh`
+
+`sudo ./security-policies.sh`
+
+![security-policies](./images/security-policies.png)
+
+### Deliverable: Network security policies implemented
+
+[Click to access Security Policy Document](security-policy-document.md)
+
+### Task 4.4: Implement Network Isolation
+
+Create separate networks for different tiers:
+
+```
+# Frontend
+sudo ip link add br-frontend type bridge
+sudo ip addr add 172.20.0.1/24 dev br-frontend
+sudo ip link set br-frontend up
+
+# Backend
+sudo ip link add br-backend type bridge
+sudo ip addr add 172.21.0.1/24 dev br-backend
+sudo ip link set br-backend up
+
+# Database
+sudo ip link add br-database type bridge
+sudo ip addr add 172.22.0.1/24 dev br-database
+sudo ip link set br-database up
+```
+**Move services to appropriate networks and configure routing.**
+
+**Frontend Namespace**
+```
+sudo ip netns add frontend-ns
+
+sudo ip link add veth-fe type veth peer name veth-fe-br
+sudo ip link set veth-fe netns frontend-ns
+sudo ip link set veth-fe-br master br-frontend
+
+sudo ip netns exec frontend-ns ip addr add 172.20.0.10/24 dev veth-fe
+sudo ip netns exec frontend-ns ip link set veth-fe up
+sudo ip netns exec frontend-ns ip link set lo up
+sudo ip link set veth-fe-br up
+
+sudo ip netns exec frontend-ns ip route add default via 172.20.0.1
+```
+
+**Backend Namespace**
+```
+sudo ip netns add backend-ns
+
+sudo ip link add veth-be type veth peer name veth-be-br
+sudo ip link set veth-be netns backend-ns
+sudo ip link set veth-be-br master br-backend
+
+sudo ip netns exec backend-ns ip addr add 172.21.0.10/24 dev veth-be
+sudo ip netns exec backend-ns ip link set veth-be up
+sudo ip netns exec backend-ns ip link set lo up
+sudo ip link set veth-be-br up
+
+sudo ip netns exec backend-ns ip route add default via 172.21.0.1
+```
+
+**Database Namespace**
+```
+sudo ip netns add database-ns
+
+sudo ip link add veth-db type veth peer name veth-db-br
+sudo ip link set veth-db netns database-ns
+sudo ip link set veth-db-br master br-database
+
+sudo ip netns exec database-ns ip addr add 172.22.0.10/24 dev veth-db
+sudo ip netns exec database-ns ip link set veth-db up
+sudo ip netns exec database-ns ip link set lo up
+sudo ip link set veth-db-br up
+
+sudo ip netns exec database-ns ip route add default via 172.22.0.1
+``` 
+**Start services in their respective namespaces**
+```
+sudo ip netns exec frontend-ns python3 frontend.py
+sudo ip netns exec backend-ns python3 backend.py
+sudo ip netns exec database-ns python3 database.py
+``` 
+
+**Configure routing between networks**
+```
+sudo ip route add 172.20.0.0/24 dev br-frontend
+sudo ip route add 172.21.0.0/24 dev br-backend
+sudo ip route add 172.22.0.0/24 dev br-database
+``` 
+
+![exec frontend curl api health](./images/exec%20frontend%20curl%20api%20health.png)
+
+![run-shell-of-fe-be-db](./images/run-shell-of-fe-be-db.png)
+
+![start isolated service](./images/start%20isolated%20service.png)
+
+**From host access the API Gateway on its isolated IP**
+
+`curl http://172.20.0.10:3000/api/products`
+
+![curl front end](./images/curl%20front%20end.png)
+
+**traffic distribution between multiple product service instances**
+
+`for i in {1..5}; do curl http://172.20.0.10:3000/api/products; echo; done`
+
+![load balance to prod1](./images/load%20balance%20to%20prod%201.png)
+
+
+### Deliverable: Multi-network topology with documented routing rules
+---
+
+**Network Topology**
+
+The application is segmented into three isolated network tiers, each in its own network namespace and connected via a dedicated bridge.
+
+| Tier | Namespace | Bridge | Subnet | Gateway | Services |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Frontend** | `frontend-ns` | `br-frontend` | `172.20.0.0/24` | `172.20.0.1` | API Gateway (`172.20.0.10`) |
+| **Backend** | `backend-ns` | `br-backend` | `172.21.0.0/24` | `172.21.0.1` | Registry (`172.21.0.5`), Product (`172.21.0.10`, `172.21.0.11`), Order (`172.21.0.20`) |
+| **Database** | `database-ns` | `br-database` | `172.22.0.0/24` | `172.22.0.1` | Redis (`172.22.0.10`), Postgres (`172.22.0.20`) |
+
+**Routing Rules**
+
+1.  **Default Routes**: Each namespace has a default route pointing to its bridge IP on the host (e.g., `default via 172.20.0.1`).
+2.  **Inter-VLAN Routing**: The host machine acts as a router. IP forwarding is enabled (`net.ipv4.ip_forward=1`), allowing traffic to routed between the subnets (e.g., Frontend → Backend → Database) via the host's bridge interfaces.
+3.  **Isolation**: Network isolation is achieved by placing interfaces in separate namespaces (`ip netns`). Traffic between namespaces must pass through the host router.
+
+**Network Setup Script (`setup_network_isolation.sh`)**:
+```bash
+# Frontend
+sudo ip link add br-frontend type bridge
+sudo ip addr add 172.20.0.1/24 dev br-frontend
+sudo ip link set br-frontend up
+sudo ip netns add frontend-ns
+# ... (veth connections) ...
+sudo ip netns exec frontend-ns ip route add default via 172.20.0.1
+
+# Backend
+sudo ip link add br-backend type bridge
+sudo ip addr add 172.21.0.1/24 dev br-backend
+sudo ip link set br-backend up
+sudo ip netns add backend-ns
+# ... (veth connections) ...
+sudo ip netns exec backend-ns ip route add default via 172.21.0.1
+
+# Database
+sudo ip link add br-database type bridge
+sudo ip addr add 172.22.0.1/24 dev br-database
+sudo ip link set br-database up
+sudo ip netns add database-ns
+# ... (veth connections) ...
+sudo ip netns exec database-ns ip route add default via 172.22.0.1
+
+# Enable Routing
+sudo sysctl -w net.ipv4.ip_forward=1
+```
