@@ -1,57 +1,62 @@
-# Implementation Plan: Network Isolation
+# Implementation Plan: Docker Optimization
 
-Required for Task 4.4: Implement Network Isolation.
+Required for Task 5.4: Optimize Docker Setup.
 
 ## Goal
-Create three separate network segments (Frontend, Backend, Database) and migrate services to them. Configure routing to allow traffic flow between tiers while maintaining isolation.
+Optimize the existing Docker configuration by reducing image size, implementing health checks, and adding resource limits.
 
 ## Proposed Changes
 
-### 1. Network Setup Script (`setup_network_isolation.sh`) [NEW]
-- Create bridges: `br-frontend`, `br-backend`, `br-database`.
-- Create namespaces:
-  - `frontend-ns`: Hosting `api-gateway`.
-  - `backend-ns`: Hosting `product-service` (and potentially `order-service` and `service-registry`).
-  - `database-ns`: Hosting `redis` and `postgres` (simulated).
-- Configure IPs:
-  - Frontend: `172.20.0.0/24` (Gateway: `172.20.0.1`)
-  - Backend: `172.21.0.0/24` (Gateway: `172.21.0.1`)
-  - Database: `172.22.0.0/24` (Gateway: `172.22.0.1`)
-- Enable IP forwarding and routing.
+### 1. Optimize Dockerfiles (Multi-Stage Builds)
+Update `Dockerfile` for all Python services to use multi-stage builds.
+- **Builder Stage**: Install build dependencies (if any) and pip packages.
+- **Runtime Stage**: Copy installed packages and application code.
+- **Base Image**: Stick to `python:3.11-slim` for balance of size and compatibility.
 
-### 2. Service Allocation
-- **Frontend Tier (`frontend-ns`)**:
-  - `api-gateway`: Bind to `172.20.0.10`.
-- **Backend Tier (`backend-ns`)**:
-  - `service-registry`: Bind to `172.21.0.5`.
-  - `product-service` (Instance 1): `172.21.0.10`.
-  - `product-service` (Instance 2): `172.21.0.11`.
-  - `order-service`: `172.21.0.20`.
-- **Database Tier (`database-ns`)**:
-  - `redis`: `172.22.0.10`.
-  - `postgres`: `172.22.0.20`.
+Example pattern:
+```dockerfile
+# Builder stage
+FROM python:3.11-slim as builder
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir -r requirements.txt
 
-### 3. Update Existing Scripts
-- **`start_isolated_services.sh` [NEW]**:
-  - Script to start all services in their respective namespaces with the new IP configurations.
-  - Will replace usages of `start_all_services.sh` for this task.
+# Runtime stage
+FROM python:3.11-slim
+WORKDIR /app
+COPY --from=builder /root/.local /root/.local
+COPY . .
+ENV PATH=/root/.local/bin:$PATH
+# Add HEALTHCHECK instruction
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:<port>/health || exit 1
+CMD ["python", "app.py"]
+```
+*Note: `curl` might need to be installed in slim image if not present, or we write a python healthcheck script to avoid extra deps.*
+*Actually, `python:slim` often lacks `curl`. Installing it adds weight. Better to use a simple python one-liner for healthcheck:*
+`CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:<port>/health')"`
 
-### 4. Code Changes
-- No code changes needed in Python files if we use environment variables for IPs.
-- We need to ensure `start_isolated_services.sh` sets `SERVICE_IP`, `REDIS_HOST`, etc., correctly.
+### 2. Update `docker-compose.yml`
+- **Resource Limits**: Add `deploy.resources.limits` (e.g., cpus: '0.5', memory: '128M').
+- **Health Checks**: Can be defined here or rely on Dockerfile. Defining in Compose allows orchestrator visibility easily (depends_on condition: service_healthy).
+
+Example addition to services:
+```yaml
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '128M'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
 
 ## Verification Plan
-
-### Automated Tests
-- Run `setup_network_isolation.sh`.
-- Run `start_isolated_services.sh`.
-- Execute verifying curls from the host (acting as external client) to the `api-gateway` on `172.20.0.10`.
-  - Note: Host needs route to `172.20.0.0/24` via `br-frontend`.
-  ```bash
-  curl http://172.20.0.10:3000/api/products
-  ```
-
-### Manual Verification
-- Verify that `frontend-ns` can reach `backend-ns`.
-- Verify that `backend-ns` can reach `database-ns`.
-- Verify that direct access to Database from Frontend might be blocked (optional security policy, but "Isolation" usually implies separation).
+1.  Rebuild images: `docker-compose build`.
+2.  Check image sizes: `docker images` (compare with previous).
+3.  Run stack: `docker-compose up -d`.
+4.  Verify health status: `docker ps` (should show "healthy").
+5.  Verify resource limits: `docker stats`.

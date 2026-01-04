@@ -1435,6 +1435,8 @@ python3 product-service.py
 ---
 ![round-robin](./images/round%20robin%20loadb.png)
 
+![round-robin2](./images/round%20robin%20loadb2.png)
+
 ### Task 4.3: Network Security Policies
 
 Implement iptables rules for security:
@@ -1637,3 +1639,276 @@ sudo ip netns exec database-ns ip route add default via 172.22.0.1
 # Enable Routing
 sudo sysctl -w net.ipv4.ip_forward=1
 ```
+## **5: Docker Migration and Optimization**
+
+**Goals**
+
+- Migrate infrastructure to Docker
+- Compare raw Linux vs Docker implementation
+- Optimize the setup
+
+## Tasks
+
+### Task 5.1: Containerize All Services
+---
+### Create Dockerfiles for each service:
+
+**Dockerfile for api-gateway:**
+```
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 3000
+CMD ["python", "api-gateway.py"]
+```
+**requirements.txt for api-gateway:**
+```
+flask
+requests
+redis
+psycopg2-binary
+```
+
+**Dockerfile for product-service:**
+```
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 5000
+CMD ["python", "product-service.py"]
+```
+**requirements.txt for product-service:**
+```
+flask
+requests
+redis
+psycopg2-binary
+```
+
+**Dockerfile for order-service:**
+```
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 5001
+CMD ["python", "order-service.py"]
+```
+**requirements.txt for order-service:**
+```
+flask
+requests
+redis
+psycopg2-binary
+```
+
+**Dockerfile for service-registry:**
+```
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8500
+CMD ["python", "service-registry.py"]
+```
+**requirements.txt for service-registry:**
+```
+flask
+requests
+```
+### Deliverable: All services running in Docker containers
+
+`sudo docker ps`
+
+![docker ps2](./images/docker%20ps%202.png)
+
+### Task 5.2: Docker Compose Setup
+
+**Create docker-compose.yml:**
+```
+version: '3.8'
+
+services:
+  # Database Tier
+  redis:
+    image: redis:alpine
+    networks:
+      - app-network
+    ports:
+      - "6380:6379" # Map to 6380 to prevent conflict with local Redis
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    networks:
+      - app-network
+    ports:
+      - "5433:5432" # Map to 5433 to prevent conflict with local Postgres
+
+  # Backend Tier
+  service-registry:
+    build: ./services/service-registry
+    networks:
+      - app-network
+    ports:
+      - "8501:8500" # Map to 8501 to avoid conflict with local process
+
+  product-service:
+    build: ./services/product-service
+    environment:
+      - SERVICE_IP=product-service
+      - SERVICE_PORT=5000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - REDIS_HOST=redis
+    depends_on:
+      - service-registry
+      - redis
+    networks:
+      - app-network
+    deploy:
+      replicas: 2
+
+  order-service:
+    build: ./services/order-service
+    environment:
+      - SERVICE_IP=order-service
+      - SERVICE_PORT=5000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - DB_HOST=postgres
+    depends_on:
+      - service-registry
+      - postgres
+    networks:
+      - app-network
+
+  # Frontend Tier
+  api-gateway:
+    build: ./services/api-gateway
+    environment:
+      - SERVICE_IP=api-gateway
+      - SERVICE_PORT=3000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - PRODUCT_SERVICE_URLS=http://product-service:5000
+      - ORDER_SERVICE=http://order-service:5000
+    depends_on:
+      - service-registry
+      - product-service
+      - order-service
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+```
+### Deliverable: Working Docker Compose setup
+
+`sudo docker-compose up -d`
+
+![docker compose up](./images/docker%20compose%20up.png)
+
+**To verify everything is working after migration:**
+
+`curl http://localhost:3000/api/products`
+
+![curl after migration](./images/curl%20after%20migration.png)
+
+### Task 5.3: Performance Comparison
+---
+`sudo nano benchmark.sh`
+
+Benchmark your implementations:
+
+```
+#!/bin/bash
+# benchmark.sh
+# Usage: 
+#   ./benchmark.sh linux   (Run while start_isolated_services.sh is active)
+#   ./benchmark.sh docker  (Run while docker-compose up is active)
+
+# Configuration from our setup
+URL_LINUX="http://172.20.0.10:3000/api/products"
+URL_DOCKER="http://127.0.0.1:3000/api/products"
+
+# Requests to send
+REQUESTS=1000
+CONCURRENCY=50
+
+echo "=== Performance Benchmark ==="
+
+# Check for Apache Benchmark
+if ! command -v ab &> /dev/null; then
+    echo "Error: 'ab' command not found."
+    echo "Please install it: sudo apt-get install -y apache2-utils"
+    exit 1
+fi
+
+MODE=$1
+
+if [ "$MODE" == "linux" ]; then
+    echo "Benchmarking Linux Namespace Implementation..."
+    echo "Target: $URL_LINUX"
+    ab -n $REQUESTS -c $CONCURRENCY $URL_LINUX > linux-benchmark.txt
+    echo "Saved to linux-benchmark.txt"
+    grep "Requests per second" linux-benchmark.txt
+
+elif [ "$MODE" == "docker" ]; then
+    echo "Benchmarking Docker Implementation..."
+    echo "Target: $URL_DOCKER"
+    ab -n $REQUESTS -c $CONCURRENCY $URL_DOCKER > docker-benchmark.txt
+    echo "Saved to docker-benchmark.txt"
+    grep "Requests per second" docker-benchmark.txt
+
+else
+    echo "Usage: ./benchmark.sh [linux|docker]"
+    echo ""
+    echo "Steps to compare:"
+    echo "1. Start Linux setup (bash start_isolated_services.sh)"
+    echo "2. Run: ./benchmark.sh linux"
+    echo "3. Stop Linux setup (pkill -f python3; pkill redis; ...)"
+    echo "4. Start Docker setup (docker-compose up -d)"
+    echo "5. Run: ./benchmark.sh docker"
+    echo "6. Compare results"
+fi
+```
+`sudo chmod +x benchmark.sh`
+
+`sudo ./benchmark.sh docker`
+
+![benchmark-docker](./images/benchmark-docker.png)
+
+For comparison i would need to stop Docker `docker-compose down` and start the manual script `bash start_isolated_services.sh`, then run `./benchmark.sh linux`.
+
+`sudo ./benchmark.sh linux`
+
+![benchmark-linux](./images/benchmark-linux.png)
+
+### Deliverable: Performance comparison report
+---
+
+| Metric | Linux Namespaces | Docker Implementation |
+| :--- | :--- | :--- |
+| **Requests Per Second (RPS)** | **54.07 [#/sec]** | 29.21 [#/sec] |
+| **Mean Time Per Request** | **924.704 ms** | 1711.552 ms |
+| **Failed Requests** | **0** | 996 (Length Mismatch) |
+| **Success Rate** | **100%** | 99.6% (4 non-2xx) |
+
+**Analysis:**
+The Linux namespace implementation outperforms the Docker setup in this environment by approximately **85% in throughput**. This is expected as raw namespaces have lower overhead compared to the Docker bridge network and container management layer.
+
+The errors in the Docker benchmark (length mismatches) suggest the containerized Flask servers were struggling to maintain consistent response sizes under a concurrency of 50, likely due to resource contention or the overhead of the Docker proxy.
+
+### Task 5.4: Optimize Docker Setup
+---
+Optimize your Docker images by using multi-stage builds and resource limits.

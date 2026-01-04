@@ -27,10 +27,10 @@
 - [x] Task 4.4: Implement Network Isolation <!-- id: 17 -->
 
 ## Day 5: Docker Migration
-- [ ] Task 5.1: Containerize All Services <!-- id: 18 -->
-- [ ] Task 5.2: Docker Compose Setup <!-- id: 19 -->
-- [ ] Task 5.3: Performance Comparison <!-- id: 20 -->
-- [ ] Task 5.4: Optimize Docker Setup <!-- id: 21 -->
+- [x] Task 5.1: Containerize All Services <!-- id: 18 -->
+- [x] Task 5.2: Docker Compose Setup <!-- id: 19 -->
+- [x] Task 5.3: Performance Comparison <!-- id: 20 -->
+- [/] Task 5.4: Optimize Docker Setup <!-- id: 21 -->
 
 ## Day 6: Multi-Host Networking (Optional)
 - [ ] Task 6.1: Setup VXLAN Overlay <!-- id: 22 -->
