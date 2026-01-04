@@ -1,166 +1,113 @@
-# Container Networking Project
+# Container Networking & Microservices Project
 
-## Project Overview
-This project involves building a complete containerized microservices application infrastructure using only Linux primitives (network namespaces, veth pairs, bridges, iptables) to understand the low-level workings of container networking. The infrastructure simulates a real-world e-commerce platform with multiple services.
+![Banner](https://img.shields.io/badge/Status-Day%205%20Complete-success?style=for-the-badge)
+![Tech](https://img.shields.io/badge/Tech-Linux%20Primitives%20%7C%20Docker-blue?style=for-the-badge)
 
-## System Architecture
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    E-COMMERCE PLATFORM                          │
-└─────────────────────────────────────────────────────────────────┘
+A deep-dive exploration into the low-level mechanics of container networking. This project demonstrates how to build a scalable microservices architecture from scratch using raw **Linux kernel primitives** (namespaces, veth pairs, bridges) and its subsequent migration to an **optimized Docker environment**.
 
-External Users
-     │
-     ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ EDGE LAYER                                                      │
-│  ┌──────────────┐      ┌──────────────┐                        │
-│  │  Load        │      │   API        │                        │
-│  │  Balancer    │─────▶│   Gateway    │                        │
-│  │  (nginx)     │      │   (Node.js)  │                        │
-│  └──────────────┘      └──────┬───────┘                        │
-└────────────────────────────────┼────────────────────────────────┘
-                                 │
-┌────────────────────────────────┼────────────────────────────────┐
-│ APPLICATION LAYER              │                                │
-│                    ┌───────────┴──────────┐                     │
-│                    │                      │                     │
-│         ┌──────────▼─────────┐ ┌─────────▼────────┐            │
-│         │   Product Service  │ │   Order Service  │            │
-│         │   (Python Flask)   │ │   (Python Flask) │            │
-│         └──────────┬─────────┘ └─────────┬────────┘            │
-└────────────────────┼───────────────────────┼────────────────────┘
-                     │                       │
-┌────────────────────┼───────────────────────┼────────────────────┐
-│ DATA LAYER         │                       │                    │
-│         ┌──────────▼─────────┐  ┌─────────▼────────┐           │
-│         │   Redis Cache      │  │   PostgreSQL     │           │
-│         │   (Session Store)  │  │   (Database)     │           │
-│         └────────────────────┘  └──────────────────┘           │
-└─────────────────────────────────────────────────────────────────┘
-```
+---
 
-## Prerequisites
-- Linux environment (WSL2 or Linux VM)
-- Root/Sudo privileges
-- Python 3
-- `iproute2` (for `ip` command)
-- `iptables`
-- `curl`
+## 🚀 Project Overview
 
-## Getting Started
+This infrastructure simulates a production-grade e-commerce platform. We started with no container runtime, manually configuring the network stack to achieve isolation, routing, and load balancing, before automating and optimizing it with Docker.
 
-### 1. Network Setup
-Initialize the network namespaces, bridge, and NAT configuration.
+### Key Architecture Components
+- **API Gateway**: The entry point, providing round-robin load balancing.
+- **Service Registry**: A custom service discovery implementation.
+- **Product Service**: Backend logic with **Redis** caching.
+- **Order Service**: Persistent storage using **PostgreSQL**.
+- **Security Tiers**: Segmented Frontend, Backend, and Database networks.
 
+---
+
+## 🏗️ System Architecture
+
+![system architecture](./images/system%20architecture.png)
+
+---
+
+## 📋 Prerequisites
+
+- **OS**: Linux (Ubuntu recommended) or WSL2.
+- **Privileges**: Root/Sudo access for network manipulations.
+- **Tools**: `iproute2`, `iptables`, `docker`, `docker-compose`, `python3.11+`.
+
+---
+
+## 🛠️ Setup Guide
+
+### 1. The Manual Way: Linux Primitives
+This phase focuses on understanding the "magic" behind containers.
+
+**Network Isolation Script:**
+We use a 3-tier bridge architecture to isolate different layers of the application.
 ```bash
-# Make scripts executable
-chmod +x scripts/*.sh
-
-# Create namespaces and bridge
-sudo ./scripts/setup_network.sh
-
-# Configure NAT for internet access
-sudo ./scripts/setup_nat.sh
+# Example logic for creating a namespace and connecting to a bridge
+sudo ip netns add frontend-ns
+sudo ip link add veth-fe type veth peer name veth-fe-br
+sudo ip link set veth-fe netns frontend-ns
+sudo ip link set veth-fe-br master br-frontend
+sudo ip netns exec frontend-ns ip addr add 172.20.0.10/24 dev veth-fe
+sudo ip netns exec frontend-ns ip route add default via 172.20.0.1
 ```
 
-### 2. Deploy Services
-Deploy the application services (Nginx, API Gateway, Product Service, Order Service) into their respective namespaces.
-
+**Traffic Routing:**
+IP forwarding is enabled on the host to route traffic between the subnets, acting as a virtual router.
 ```bash
-# Deploy services
-sudo ./scripts/deploy_services.sh
+sudo sysctl -w net.ipv4.ip_forward=1
 ```
 
-## Verification
+### 2. The Optimized Way: Docker Compose
+Our Docker implementation leverages advanced optimizations for performance and security.
 
-### Check Network Status
-Verify that namespaces and the bridge are created correctly.
-
+**Run the Stack:**
 ```bash
-# List namespaces
-ip netns list
-# Expected: nginx-lb, api-gateway, product-service, order-service, redis-cache, postgres-db
-
-# Check bridge IP
-ip addr show br-app
-# Expected: 10.0.0.1
+docker-compose up -d --build
 ```
 
-### Test Application
-Verify that the services are running and accessible through the load balancer.
+**Optimizations Included:**
+- **Multi-Stage Builds**: Drastically reduced image sizes (using `python:3.11-slim`).
+- **Health Checks**: Automated service recovery and dependency management.
+- **Resource Limits**: Configured CPU (0.5) and Memory (128MB-256MB) constraints.
+- **Ordered Startup**: API Gateway waits for Service Registry and Database health indicators.
 
+---
+
+## 📊 Performance Comparison
+
+We compared raw Linux namespaces against Docker's overlay/bridge layers.
+*Results based on 1000 requests @ 50 concurrency:*
+
+| Metric | Linux Namespaces | Docker Compose |
+| :--- | :--- | :--- |
+| **Requests per Second** | **54.07** | 29.21 |
+| **Mean Latency** | **924.7 ms** | 1711.5 ms |
+| **Success Rate** | 100% | 99.6% |
+
+> [!NOTE]
+> Raw Linux primitives are ~46% faster, but Docker provides significantly better portability and management for modern CI/CD workflows.
+
+---
+
+## 🔍 Monitoring & Operations
+
+### Traffic Analysis
+Monitor real-time bridge traffic:
 ```bash
-# Check API Gateway health
-curl http://10.0.0.10/health
-
-# Test Product Service via Gateway
-curl http://10.0.0.10/api/products
+sudo tcpdump -i br-frontend -n -v
 ```
 
-## Project Status
-
-### Day 1: Foundation - Linux Primitives [COMPLETED]
-- [x] Create Network Namespaces
-- [x] Build a Virtual Bridge Network
-- [x] Implement NAT for Internet Access
-- [x] Setup Port Forwarding
-
-### Day 2: Application Services [COMPLETED]
-- [x] Deploy Nginx Load Balancer
-- [x] Create API Gateway
-- [x] Build Product Service
-- [x] Build Order Service
-- [x] Deploy Redis and PostgreSQL
-
-### Day 3: Monitoring and Debugging [COMPLETED]
-- [x] Network Traffic Analysis (Tcpdump & Python)
-- [x] Service Health Monitoring Dashboard
-- [x] Connection Tracking & Analysis
-
-### Day 4: Advanced Networking [COMPLETED]
-- [x] Implement Simple Service Discovery (Registry)
-- [x] Round-Robin Load Balancing (API Gateway)
-- [x] Multi-Network Tier Isolation (Frontend, Backend, Database)
-- [x] Inter-VLAN Routing via Host
-- [x] Network Security Policies (iptables) - *Optional/Skipped for Docker Migration*
-
-### Day 5: Docker Migration & Optimization [COMPLETED]
-- [x] Containerize All Services (Dockerfiles)
-- [x] Orchestration with Docker Compose
-- [x] Performance Benchmarking (Linux vs Docker)
-- [x] Multi-stage Builds & Health Checks
-- [x] Resource Limits & Optimization
-
-## Network Isolation (Task 4.4)
-The application was re-architected into three isolated security zones:
-- **Frontend (172.20.0.0/24)**: API Gateway
-- **Backend (172.21.0.0/24)**: Service Registry, Product & Order Services
-- **Database (172.22.0.0/24)**: PostgreSQL & Redis
-
-Routing between these tiers is managed by the host machine acting as a router via Linux Bridges (`br-frontend`, `br-backend`, `br-database`).
-
-## Performance Benchmark: Linux vs Docker
-Direct comparison of RPS (Requests Per Second) using `ab` benchmark (1000 requests, 50 concurrency):
-
-| Implementation | RPS | Latency (Mean) | Success Rate |
-| :--- | :--- | :--- | :--- |
-| **Linux Namespaces** | **54.07** | 924.7 ms | 100% |
-| **Docker Compose** | 29.21 | 1711.5 ms | 99.6% |
-
-**Insight**: Raw Linux namespaces provided early **2x better throughput** than Docker in this specific test environment, highlighting the overhead of container orchestration layers.
-
-## How to Run (Docker Version)
+### Service Health
+Check container health status and resource usage:
 ```bash
-# Start the optimized stack
-docker-compose up -d
-
-# Check health status
 docker ps
-
-# Verify endpoint
-curl http://localhost:3000/api/products
+docker stats
 ```
 
-## Upcoming Tasks
-- Day 6: Multi-Host Networking (VXLAN Overlay)
+---
+
+## 📄 Full Documentation
+For deeper technical details, refer to the following:
+- [Technical Document (PDF)](./PDF/Technical_Document.pdf)
+- [Architecture & Metrics (PDF)](./PDF/performance_comparison.pdf)
+- [Security Policies (PDF)](./PDF/security-policy-document.pdf)
