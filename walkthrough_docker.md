@@ -9,21 +9,18 @@ We have created Dockerfiles for all services:
 
 Dependencies are handled via `requirements.txt` in each service directory.
 
-## 2. Running with Docker Compose
-A `docker-compose.yml` file is provided to orchestrate the entire stack.
+## 3. Optimizations (Task 5.4)
+We have optimized the Docker setup with:
+- **Multi-stage builds**: Reduced image sizes by separating build and runtime environments.
+- **Health Checks**: Containers now monitor their own service status (`docker ps` will show `healthy`).
+- **Resource Limits**: CPU and Memory limits are enforced via Docker Compose to prevent resource exhaustion.
+- **Ordered Startup**: API Gateway now waits for the Service Registry to be **Healthy** before starting.
 
-**To Start:**
+**Commands to verify optimizations:**
 ```bash
-docker-compose up --build -d
-```
-
-**To Verify:**
-```bash
+# Verify health status
 docker ps
-curl http://localhost:3000/api/products
-```
 
-**To Stop:**
-```bash
-docker-compose down
+# Verify resource limits
+docker stats --no-stream
 ```

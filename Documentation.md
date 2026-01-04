@@ -1896,19 +1896,104 @@ For comparison i would need to stop Docker `docker-compose down` and start the m
 
 ### Deliverable: Performance comparison report
 ---
+### Performance Comparison Report: Linux Namespaces vs. Docker
 
-| Metric | Linux Namespaces | Docker Implementation |
-| :--- | :--- | :--- |
-| **Requests Per Second (RPS)** | **54.07 [#/sec]** | 29.21 [#/sec] |
-| **Mean Time Per Request** | **924.704 ms** | 1711.552 ms |
-| **Failed Requests** | **0** | 996 (Length Mismatch) |
-| **Success Rate** | **100%** | 99.6% (4 non-2xx) |
+### Overview
+This report compares the performance of the microservices architecture implemented using raw Linux network namespaces vs. the Docker containerized implementation. 
 
-**Analysis:**
-The Linux namespace implementation outperforms the Docker setup in this environment by approximately **85% in throughput**. This is expected as raw namespaces have lower overhead compared to the Docker bridge network and container management layer.
+### Benchmark Parameters
+- **Tool**: Apache Benchmark (ab)
+- **Concurrency**: 50
+- **Total Requests**: 1000
+- **Endpoint**: `/api/products`
 
-The errors in the Docker benchmark (length mismatches) suggest the containerized Flask servers were struggling to maintain consistent response sizes under a concurrency of 50, likely due to resource contention or the overhead of the Docker proxy.
+### Key Metrics
+
+| Metric | Linux Namespaces | Docker (Compose) | Difference |
+| :--- | :--- | :--- | :--- |
+| **Requests per Second (RPS)** | **54.07** | 29.21 | **-46%** (Docker is slower) |
+| **Mean Latency (ms)** | **924.70** | 1711.55 | **+85%** (Docker higher) |
+| **Median Latency (ms)** | 806 | **805** | ~0% (Similar) |
+| **Failed Requests** | **0** | 996 (Length Mismatch) | Significant |
+| **Reliability** | 100% | ~0.4% (Non-2xx) | - |
+
+### Detailed Performance Analysis
+
+### Linux Namespace Implementation
+- **Throughput**: Significantly higher throughput at ~54 RPS.
+- **Stability**: Very stable with zero failed requests and consistent latency.
+- **Networking**: Benefitted from direct `veth` pairs and host-level routing with minimal abstraction.
+
+### Docker Implementation
+- **Throughput**: Lower throughput at ~29 RPS.
+- **Overhead**: The lower RPS and higher mean latency are likely due to the additional layers inherent in Docker (container runtime, `docker-proxy`, and Docker bridge networking).
+- **Errors**: High number of "Length Mismatch" failures indicates that under high concurrency (50), some backend responses were truncated or served error pages (confirmed by 4 non-2xx responses).
+
+### Conclusions
+Raw Linux namespaces offer **higher raw performance** and **lower latency** for networking-intensive tasks by avoiding the overhead of a container orchestration layer. However, Docker provides superior **portability** and **ease of management**, which usually outweighs the performance cost in modern development workflows.
+
+### Recommendations for Docker Optimization
+1. **Reduce Overhead**: Use `network_mode: host` if extreme performance is needed (though this loses isolation).
+2. **Buffering**: Use a production-grade WSGI server like `gunicorn` instead of the Flask development server (`Werkzeug`) to handle concurrency better.
+3. **Resource Tuning**: Assign more CPU/Memory resources to containers in `docker-compose.yml`.
 
 ### Task 5.4: Optimize Docker Setup
 ---
-Optimize your Docker images by using multi-stage builds and resource limits.
+**Optimize my Docker images:**
+
+- Use multi-stage builds
+- Minimize image sizes
+- Implement health checks
+- Add resource limits
+
+### Deliverable: Optimized Docker setup with documentation
+---
+
+**Optimizations Implemented:**
+
+1.  **Multi-Stage Builds**:
+    All Dockerfiles now use a two-stage build process.
+    - **Stage 1 (Builder)**: Installs Python dependencies into a temporary image.
+    - **Stage 2 (Runtime)**: Copies only the installed packages and application code.
+    - **Outcome**: Significantly reduced image footprint and improved build efficiency.
+
+2.  **Health Checks**:
+    Internal health check logic added to all service Dockerfiles using `urllib.request`.
+    ```dockerfile
+    HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+      CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')" || exit 1
+    ```
+
+3.  **Resource Limits**:
+    Enforced CPU and Memory constraints in `docker-compose.yml` to ensure system stability.
+    - **CPU Limit**: 0.5 cores per service.
+    - **Memory Limit**: 128MB - 256MB per service.
+
+4.  **Orchestration Improvements**:
+    Services in `docker-compose.yml` now use the `service_healthy` condition for dependencies.
+    - The API Gateway only starts once the Service Registry report itself as **Healthy**.
+
+**Full Optimized `docker-compose.yml`**:
+```yaml
+# ... (Optimized version with deploy.resources and healthcheck conditions) ...
+```
+
+**Verification Commands**:
+
+**Check image sizes**
+
+`sudo docker images`
+
+![image sizes](./images/image%20sizes.png)
+
+**Check health status**
+`sudo docker ps`
+
+![container health](./images/container%20health.png)
+
+**Check resource usage**
+
+`sudo docker stats`
+
+![resource usage](./images/resource%20usage.png)
+

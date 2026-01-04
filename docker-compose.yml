@@ -27,6 +27,11 @@ services:
       - app-network
     ports:
       - "8501:8500" # Map to 8501 to avoid conflict with local process
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '128M'
 
   product-service:
     build: ./services/product-service
@@ -36,12 +41,18 @@ services:
       - SERVICE_REGISTRY=http://service-registry:8500
       - REDIS_HOST=redis
     depends_on:
-      - service-registry
-      - redis
+      service-registry:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - app-network
     deploy:
       replicas: 2
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '256M'
 
   order-service:
     build: ./services/order-service
@@ -51,10 +62,17 @@ services:
       - SERVICE_REGISTRY=http://service-registry:8500
       - DB_HOST=postgres
     depends_on:
-      - service-registry
-      - postgres
+      service-registry:
+        condition: service_healthy
+      postgres:
+        condition: service_started
     networks:
       - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '256M'
 
   # Frontend Tier
   api-gateway:
@@ -66,13 +84,21 @@ services:
       - PRODUCT_SERVICE_URLS=http://product-service:5000
       - ORDER_SERVICE=http://order-service:5000
     depends_on:
-      - service-registry
-      - product-service
-      - order-service
+      service-registry:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+      order-service:
+        condition: service_started
     ports:
       - "3000:3000"
     networks:
       - app-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '256M'
 
 networks:
   app-network:

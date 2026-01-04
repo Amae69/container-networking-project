@@ -135,4 +135,5 @@ def get_order(order_id):
 if __name__ == '__main__':
     init_db()
     register_with_registry()
-    app.run(host=SERVICE_IP, port=SERVICE_PORT)
+    # Bind to 0.0.0.0 so health checks (on localhost) work inside the container
+    app.run(host='0.0.0.0', port=SERVICE_PORT)

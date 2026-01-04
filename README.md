@@ -113,8 +113,54 @@ curl http://10.0.0.10/api/products
 - [x] Build Order Service
 - [x] Deploy Redis and PostgreSQL
 
-### Upcoming Tasks
-- Day 3: Monitoring and Debugging
-- Day 4: Advanced Networking
-- Day 5: Docker Migration
-- Day 6: Multi-Host Networking
+### Day 3: Monitoring and Debugging [COMPLETED]
+- [x] Network Traffic Analysis (Tcpdump & Python)
+- [x] Service Health Monitoring Dashboard
+- [x] Connection Tracking & Analysis
+
+### Day 4: Advanced Networking [COMPLETED]
+- [x] Implement Simple Service Discovery (Registry)
+- [x] Round-Robin Load Balancing (API Gateway)
+- [x] Multi-Network Tier Isolation (Frontend, Backend, Database)
+- [x] Inter-VLAN Routing via Host
+- [ ] Network Security Policies (iptables) - *Optional/Skipped for Docker Migration*
+
+### Day 5: Docker Migration & Optimization [COMPLETED]
+- [x] Containerize All Services (Dockerfiles)
+- [x] Orchestration with Docker Compose
+- [x] Performance Benchmarking (Linux vs Docker)
+- [x] Multi-stage Builds & Health Checks
+- [x] Resource Limits & Optimization
+
+## Network Isolation (Task 4.4)
+The application was re-architected into three isolated security zones:
+- **Frontend (172.20.0.0/24)**: API Gateway
+- **Backend (172.21.0.0/24)**: Service Registry, Product & Order Services
+- **Database (172.22.0.0/24)**: PostgreSQL & Redis
+
+Routing between these tiers is managed by the host machine acting as a router via Linux Bridges (`br-frontend`, `br-backend`, `br-database`).
+
+## Performance Benchmark: Linux vs Docker
+Direct comparison of RPS (Requests Per Second) using `ab` benchmark (1000 requests, 50 concurrency):
+
+| Implementation | RPS | Latency (Mean) | Success Rate |
+| :--- | :--- | :--- | :--- |
+| **Linux Namespaces** | **54.07** | 924.7 ms | 100% |
+| **Docker Compose** | 29.21 | 1711.5 ms | 99.6% |
+
+**Insight**: Raw Linux namespaces provided early **2x better throughput** than Docker in this specific test environment, highlighting the overhead of container orchestration layers.
+
+## How to Run (Docker Version)
+```bash
+# Start the optimized stack
+docker-compose up -d
+
+# Check health status
+docker ps
+
+# Verify endpoint
+curl http://localhost:3000/api/products
+```
+
+## Upcoming Tasks
+- Day 6: Multi-Host Networking (VXLAN Overlay)
