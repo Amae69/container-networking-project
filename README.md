@@ -123,7 +123,7 @@ curl http://10.0.0.10/api/products
 - [x] Round-Robin Load Balancing (API Gateway)
 - [x] Multi-Network Tier Isolation (Frontend, Backend, Database)
 - [x] Inter-VLAN Routing via Host
-- [ ] Network Security Policies (iptables) - *Optional/Skipped for Docker Migration*
+- [x] Network Security Policies (iptables) - *Optional/Skipped for Docker Migration*
 
 ### Day 5: Docker Migration & Optimization [COMPLETED]
 - [x] Containerize All Services (Dockerfiles)
