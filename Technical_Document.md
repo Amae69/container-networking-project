@@ -1,4 +1,4 @@
-# Technical Document: Container Networking Project
+# Technical Document:
 
 ## 1. Architecture Document
 
@@ -26,18 +26,8 @@ The system is divided into three isolated security tiers:
 In the Linux implementation, each tier has a dedicated bridge (`br-frontend`, `br-backend`, `br-database`) and the host acts as the router. In the Docker implementation, all services reside on a unified `app-network` bridge with internal DNS discovery.
 
 ### Data Flow Diagram
-```mermaid
-graph TD
-    User((User)) -->|HTTP 8080| Host[Host Machine]
-    Host -->|DNAT| Gateway[API Gateway]
-    Gateway -->|Discovery| Registry[Service Registry]
-    Gateway -->|Load Balanced| Product[Product Service]
-    Gateway -->|POST| Order[Order Service]
-    Product -->|Cache Lookups| Redis[(Redis)]
-    Order -->|SQL| Postgres[(PostgreSQL)]
-```
 
----
+![data flow diagram](./images/data_flow_diagram.png)
 
 ## 2. Implementation Guide
 
@@ -62,6 +52,42 @@ graph TD
 - **Registry Failures**: Check that the `SERVICE_REGISTRY` environment variable matches the internal network IP/hostname.
 - **Healthcheck Unhealthy**: Verify the `/health` endpoint is reachable from within the container context.
 
+### Debugging Commands
+
+**Network namespace debugging**
+```
+sudo ip netns exec <namespace> ip addr
+sudo ip netns exec <namespace> ip route
+sudo ip netns exec <namespace> ss -tulpn
+```
+**Bridge inspection**
+```
+bridge link show
+bridge fdb show
+```
+
+**iptables**
+```
+sudo iptables -L -n -v
+sudo iptables -t nat -L -n -v
+```
+
+**Connection tracking**
+```
+sudo conntrack -L
+```
+
+**Docker networking**
+```
+docker network inspect <network>
+docker exec <container> ip addr
+```
+### Tools
+- tcpdump for packet capture
+- wireshark for analysis
+- ab (Apache Bench) for load testing
+- curl for API testing
+- jq for JSON processing
 ---
 
 ## 3. Operations Manual
