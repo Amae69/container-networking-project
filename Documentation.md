@@ -1977,23 +1977,329 @@ Raw Linux namespaces offer **higher raw performance** and **lower latency** for 
 ```yaml
 # ... (Optimized version with deploy.resources and healthcheck conditions) ...
 ```
-
-**Verification Commands**:
-
-**Check image sizes**
-
-`sudo docker images`
+**Check image sizes:** `sudo docker images`
 
 ![image sizes](./images/image%20sizes.png)
 
-**Check health status**
-`sudo docker ps`
+**Check health status:** `sudo docker ps`
 
 ![container health](./images/container%20health.png)
 
-**Check resource usage**
-
-`sudo docker stats`
+**Check resource usage:** `sudo docker stats`
 
 ![resource usage](./images/resource%20usage.png)
 
+## **6: Multi-Host Networking**
+
+**Goals**
+
+- Implement overlay networking
+- Connect containers across hosts
+- Understand distributed networking
+
+## Tasks
+
+### Task 6.1: Setup VXLAN Overlay
+---
+I will create a VXLAN interface to bridge the application networks across hosts.
+
+Create two specialized scripts `setup_vxlan_host_a.sh` Run on Host A (192.168.56.104) and `setup_vxlan_host_b.sh` Run on Host B (192.168.56.103) to establish a tunnel between my two hosts VMs
+
+**setup_vxlan_host_a.sh** script that will:
+
+- Add a VXLAN interface vxlan100 tied to a specific VNI (100).
+- Set the remote endpoint to Host B's IP.
+- Attach vxlan100 to the existing br-app bridge.
+- Bring the interface up.
+
+**VXLAN scripts for HOST A VM (192.168.56.104)**
+
+```
+#!/bin/bash
+# setup_vxlan_host_a.sh
+# To be run on Host A (192.168.56.104)
+
+HOST_B_IP="192.168.56.103"
+VNI=100
+PORT=4789
+INTERFACE="enp0s3" # Adjust if your primary adapter is different (e.g., enp0s8)
+BRIDGE="br-app"
+
+echo "=== Setting up VXLAN on Host A ==="
+
+# Check if bridge exists, create if missing (assuming Task 1.2 logic)
+if ! ip link show "$BRIDGE" > /dev/null 2>&1; then
+    echo "Creating bridge $BRIDGE..."
+    sudo ip link add "$BRIDGE" type bridge
+    sudo ip addr add 10.0.0.1/16 dev "$BRIDGE"
+    sudo ip link set "$BRIDGE" up
+fi
+
+# Create VXLAN interface
+echo "Creating vxlan100 interface..."
+sudo ip link add vxlan100 type vxlan \
+    id $VNI \
+    remote $HOST_B_IP \
+    dstport $PORT \
+    dev $INTERFACE
+
+# Attach to bridge
+echo "Attaching vxlan100 to $BRIDGE..."
+sudo ip link set vxlan100 master $BRIDGE
+sudo ip link set vxlan100 up
+
+echo "VXLAN setup complete on Host A."
+echo "Don't forget to run the corresponding script on Host B ($HOST_B_IP)."
+```
+`chmod +x setup_vxlan_host_a.sh`
+
+`sudo ./setup_vxlan_host_a.sh`
+
+![setup vxlan for host A](./images/setup%20vxlan%20for%20host%20A.png)
+
+**setup_vxlan_host_b.sh** script for HOST B VM (192.168.56.103):
+
+- Similar setup as script "a" above except this is pointing back to Host A's IP.
+
+```
+#!/bin/bash
+# setup_vxlan_host_b.sh
+# To be run on Host B (192.168.56.103)
+
+HOST_A_IP="192.168.56.104"
+VNI=100
+PORT=4789
+INTERFACE="enp0s3" # Adjust if your primary adapter is different
+BRIDGE="br-app"
+
+echo "=== Setting up VXLAN on Host B ==="
+
+# Create bridge on Host B
+if ! ip link show "$BRIDGE" > /dev/null 2>&1; then
+    echo "Creating bridge $BRIDGE..."
+    sudo ip link add "$BRIDGE" type bridge
+    # Note: Using a different IP range or just no IP if it's purely for bridging
+    # For simplicity in this demo, we'll give it the same subnet gateway if it's the only one
+    sudo ip addr add 10.0.0.2/16 dev "$BRIDGE"
+    sudo ip link set "$BRIDGE" up
+fi
+
+# Create VXLAN interface
+echo "Creating vxlan100 interface pointing to Host A..."
+sudo ip link add vxlan100 type vxlan \
+    id $VNI \
+    remote $HOST_A_IP \
+    dstport $PORT \
+    dev $INTERFACE
+
+# Attach to bridge
+echo "Attaching vxlan100 to $BRIDGE..."
+sudo ip link set vxlan100 master $BRIDGE
+sudo ip link set vxlan100 up
+
+echo "VXLAN setup complete on Host B."
+```
+`chmod +x setup_vxlan_host_b.sh`
+
+`sudo ./setup_vxlan_host_b.sh`
+
+![setup vxlan for host B](./images/setup%20vxlan%20for%20host%20B.png)
+
+### Deliverable: Working multi-host communication
+
+- On Host A **(10.0.0.1)** ping Host B **(br-app 10.0.0.2)**
+
+![br-app host A](./images/br-app%20host%20A.png)
+
+`ping -c 3 10.0.0.2`
+
+![ping B](./images/ping%2010.0.0.2.png)
+
+- On Host B **(br-app 10.0.0.2)** ping Host A **(10.0.0.1)**
+
+![br-app host B](./images/br-app%20host%20B.png)
+
+`ping -c 3 10.0.0.1`
+
+![ping A](./images/ping%2010.0.0.1.png)
+
+### Task 6.2: Docker Swarm Setup
+---
+Initialize Docker Swarm and create overlay network:
+
+- Create a docker-compose-swarm.yml file in Host A 
+
+```
+version: '3.8'
+
+services:
+  # Database Tier
+  redis:
+    image: redis:alpine
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+      placement:
+        constraints:
+          - node.role == manager
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+      placement:
+        constraints:
+          - node.role == manager
+
+  # Backend Tier
+  service-registry:
+    image: myapp-registry:latest
+    networks:
+      - app-overlay
+    ports:
+      - "8501:8500"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  product-service:
+    image: myapp-product:latest
+    environment:
+      - SERVICE_IP=product-service
+      - SERVICE_PORT=5000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - REDIS_HOST=redis
+    depends_on:
+      - service-registry
+      - redis
+    networks:
+      - app-overlay
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  order-service:
+    image: myapp-order:latest
+    environment:
+      - SERVICE_IP=order-service
+      - SERVICE_PORT=5000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - DB_HOST=postgres
+    depends_on:
+      - service-registry
+      - postgres
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+  # Frontend Tier
+  api-gateway:
+    image: myapp-gateway:latest
+    environment:
+      - SERVICE_IP=api-gateway
+      - SERVICE_PORT=3000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - PRODUCT_SERVICE_URLS=http://product-service:5000
+      - ORDER_SERVICE=http://order-service:5000
+    depends_on:
+      - service-registry
+      - product-service
+      - order-service
+    ports:
+      - "3000:3000"
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  app-overlay:
+    driver: overlay
+    attachable: true
+```
+
+- Initialize swarm on Host A and copy the join token to Host B
+
+  `docker swarm init --advertise-addr 192.168.56.104`
+
+  ![docker swarm init](./images/docker%20swarm%20init.png)
+
+- **Join Worker:** Provide the join token from Host A and run it on Host B.
+
+  `docker swarm join --token SWMTKN-1-4wn6pyie87iokls5ltg9b9a99n1pnfh7sjcb511il40t4a6plp-8h6j5oxaunviac5dslsibt8w7 192.168.56.104:2377`
+
+  ![docker swarm join](./images/docker%20swarm%20join.png)
+
+- **Create Overlay Network:**
+
+  `docker network create --driver overlay --attachable app-overlay`
+
+  ![create overlay network](./images/create%20overlay%20network.png)
+
+  `docker network ls`
+
+  ![ls docker network](./images/ls%20docker%20network.png)
+
+- Deploy stack on host A
+
+  `docker stack deploy -c docker-compose-swarm.yml myapp`
+
+  ![docker stack deploy](./images/docker%20stack%20deploy.png)    
+
+### **Deliverable: Services communicating across hosts**
+
+The deployment was verified by checking the service status and task distribution.
+
+**Service Status:**
+```bash
+sudo docker service ls
+# Output showing all services running with full replicas
+```
+![docker service ls](./images/docker%20service%20ls.png)
+
+**Task Distribution:**
+By inspecting individual services, we confirmed that containers are balanced across both `Host A VM` (Manager) and `Host B VM` (Worker).
+
+`sudo docker service ps myapp_product-service`
+
+![docker service ps prod svc](./images/docker%20service%20ps%20prod%20svc.png)
+
+`sudo docker service ps myapp_order-service`
+
+![docker service ps order svc](./images/docker%20service%20ps%20order%20svc..png)
+
+- Microservices communicating across the overlay network (API Gateway on Host A VM reaching the Product Service on Host B VM)
+
+`curl http://localhost:3000/api/products`
+
+![api gateway overlay](./images/api%20gateway%20overlay.png)
+
+This demonstrates a fully functional multi-host overlay network where microservices can discover and communicate with each other regardless of the physical host they reside on.
+
+## END OF PROJECT...
+
+---

@@ -6,6 +6,7 @@
 This project demonstrates a microservices architecture implemented using two distinct containerization approaches:
 1.  **Lower-level Linux Primitives**: Utilizing network namespaces, veth pairs, bridges, and iptables.
 2.  **Docker Containerization**: Utilizing Docker Compose, multi-stage builds, and custom bridge networks.
+3.  **Multi-Host Overlay Networking**: Utilizing manual VXLAN tunneling and Docker Swarm for cross-host microservice communication.
 
 The application is an e-commerce platform consisting of an API Gateway, a Service Registry, a Product Service (with caching), an Order Service (with persistence), Redis, and PostgreSQL.
 
@@ -41,6 +42,12 @@ In the Linux implementation, each tier has a dedicated bridge (`br-frontend`, `b
 1.  **Build & Launch**: Run `docker-compose up --build -d`.
 2.  **Verify Health**: Run `docker ps` to ensure status is "healthy".
 3.  **Test Endpoint**: Use `curl http://localhost:3000/api/products`.
+
+#### Approach C: Multi-Host Overlay (Swarm)
+1.  **Prepare Tunnel**: Run `setup_vxlan_host_a.sh` on Manager and `setup_vxlan_host_b.sh` on Worker.
+2.  **Init Swarm**: Run `docker swarm init` on Manager and join with Worker.
+3.  **Deploy Stack**: Run `docker stack deploy -c docker-compose-swarm.yml myapp`.
+4.  **Verify Cross-Host**: `docker service ps myapp_product-service` to see tasks distributed across nodes.
 
 ### Configuration Files
 - **docker-compose.yml**: Defines service dependencies, resource limits, and environment variables.

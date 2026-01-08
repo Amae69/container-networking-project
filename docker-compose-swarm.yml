@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  # Database Tier
+  redis:
+    image: redis:alpine
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Backend Tier
+  service-registry:
+    image: myapp-registry:latest
+    networks:
+      - app-overlay
+    ports:
+      - "8501:8500"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  product-service:
+    image: myapp-product:latest
+    environment:
+      - SERVICE_IP=product-service
+      - SERVICE_PORT=5000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - REDIS_HOST=redis
+    depends_on:
+      - service-registry
+      - redis
+    networks:
+      - app-overlay
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+  order-service:
+    image: myapp-order:latest
+    environment:
+      - SERVICE_IP=order-service
+      - SERVICE_PORT=5000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - DB_HOST=postgres
+    depends_on:
+      - service-registry
+      - postgres
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+  # Frontend Tier
+  api-gateway:
+    image: myapp-gateway:latest
+    environment:
+      - SERVICE_IP=api-gateway
+      - SERVICE_PORT=3000
+      - SERVICE_REGISTRY=http://service-registry:8500
+      - PRODUCT_SERVICE_URLS=http://product-service:5000
+      - ORDER_SERVICE=http://order-service:5000
+    depends_on:
+      - service-registry
+      - product-service
+      - order-service
+    ports:
+      - "3000:3000"
+    networks:
+      - app-overlay
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  app-overlay:
+    driver: overlay
+    attachable: true

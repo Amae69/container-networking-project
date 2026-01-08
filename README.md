@@ -1,9 +1,9 @@
 # Container Networking & Microservices Project
 
-![Banner](https://img.shields.io/badge/Status-Day%205%20Complete-success?style=for-the-badge)
-![Tech](https://img.shields.io/badge/Tech-Linux%20Primitives%20%7C%20Docker-blue?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Day%206%20Complete-success?style=for-the-badge)
+![Tech](https://img.shields.io/badge/Tech-VXLAN%20%7C%20Docker%20Swarm-orange?style=for-the-badge)
 
-A deep-dive exploration into the low-level mechanics of container networking. This project demonstrates how to build a scalable microservices architecture from scratch using raw **Linux kernel primitives** (namespaces, veth pairs, bridges) and its subsequent migration to an **optimized Docker environment**.
+A deep-dive exploration into the low-level mechanics of container networking. This project demonstrates how to build a scalable microservices architecture from scratch using raw **Linux kernel primitives** (namespaces, veth pairs, bridges), migrating to an **optimized Docker environment**, and finally scaling to **Multi-Host Networking** using VXLAN and Docker Swarm.
 
 ---
 
@@ -70,6 +70,23 @@ docker-compose up -d --build
 - **Health Checks**: Automated service recovery and dependency management.
 - **Resource Limits**: Configured CPU (0.5) and Memory (128MB-256MB) constraints.
 - **Ordered Startup**: API Gateway waits for Service Registry and Database health indicators.
+### 3. The Distributed Way: Multi-Host Networking
+Scale services across multiple physical or virtual hosts.
+
+**VXLAN Tunneling:**
+Create an overlay tunnel to bridge network segments across the physical network.
+```bash
+sudo ip link add vxlan100 type vxlan id 100 remote <REMOTE_IP> dstport 4789 dev eth0
+sudo ip link set vxlan100 master br-app
+sudo ip link set vxlan100 up
+```
+
+**Docker Swarm Orchestration:**
+Initialize a cluster and deploy an `overlay` network for seamless cross-host communication.
+```bash
+docker swarm init --advertise-addr <MANAGER_IP>
+docker stack deploy -c docker-compose-swarm.yml myapp
+```
 
 ---
 
@@ -108,6 +125,12 @@ docker stats
 
 ## 📄 Full Documentation
 For deeper technical details, refer to the following:
-- [Technical Document (PDF)](./PDF/Technical_Document.pdf)
-- [Architecture & Metrics (PDF)](./PDF/performance_comparison.pdf)
-- [Security Policies (PDF)](./PDF/security-policy-document.pdf)
+- [Technical Implementation Part 1: Linux Primitives (PDF)](./Documentation_Part1.pdf)
+- [Technical Implementation Part 2: Docker & Swarm (PDF)](./Documentation_Part2.pdf)
+- [Project Architecture & Setup Summary (PDF)](./Technical_Document_Final.pdf)
+- [Performance Benchmarks (PDF)](./performance_comparison.pdf)
+- [Detailed Security Policies (PDF)](./security-policy-document.pdf)
+
+---
+**Project Status: Successfully Completed** ✅
+Finalized on 2026-01-08.
