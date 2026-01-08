@@ -1,8 +1,8 @@
 # Ignore folders
 images/
-ignore/
+.ignore/
 container-networking-project/images/
-container-networking-project/ignore/
+container-networking-project/.ignore/
 
 # Ignore specific markdown
 Container-Network-Project.md
