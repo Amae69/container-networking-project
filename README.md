@@ -125,6 +125,7 @@ docker stats
 
 ## 📄 Full Documentation
 For deeper technical details, refer to the following:
+- [Full Project Documentation (PDF)](./Project_Documentation.pdf)
 - [Technical Implementation Part 1: Linux Primitives (PDF)](./Documentation_Part1.pdf)
 - [Technical Implementation Part 2: Docker & Swarm (PDF)](./Documentation_Part2.pdf)
 - [Project Architecture & Setup Summary (PDF)](./Technical_Document_Final.pdf)
